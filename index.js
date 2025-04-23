@@ -49,8 +49,8 @@ client.on('messageCreate', async (message) => {
   const args = message.content.slice(1).trim().split(' ');
   const command = args.shift().toLowerCase();
 
-  if (command === 'ping') {
-    return message.reply('pong!');
+  if (command === 'hello') {
+    return message.reply('lô cc!');
   }
 
   if (command === 'thongbao') {
