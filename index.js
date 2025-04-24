@@ -5,8 +5,8 @@ const app = express();
 require('dotenv').config(); // ← Load biến môi trường từ .env
 
 // Thêm config cho ID kênh
-const ANNOUNCEMENT_CHANNEL_ID = process.env.ANNOUNCEMENT_CHANNEL_ID || '1360306086338625749'; // Thay bằng ID thực tế
-const REPORT_CHANNEL_ID = process.env.REPORT_CHANNEL_ID || '1360306086338625749'; // Thay bằng ID thực tế
+const ANNOUNCEMENT_CHANNEL_ID = process.env.ANNOUNCEMENT_CHANNEL_ID || '123456789012345678'; // Thay bằng ID thực tế
+const REPORT_CHANNEL_ID = process.env.REPORT_CHANNEL_ID || '123456789012345678'; // Thay bằng ID thực tế
 
 // Tên của các role có quyền quản trị (thay thế OWNER_ID)
 const ADMIN_ROLE_NAME = process.env.ADMIN_ROLE_NAME || '【Chủ tịch】';
@@ -56,8 +56,8 @@ client.on('ready', () => {
 // Hàm kiểm tra các kênh có tồn tại không
 function checkChannels() {
   client.guilds.cache.forEach(guild => {
-    const announceChannel = guild.channels.cache.get(ANNOUNCEMENT_CHANNEL_ID);
-    const reportChannel = guild.channels.cache.get(REPORT_CHANNEL_ID);
+    const announceChannel = guild.channels.cache.get(1360306086338625749);
+    const reportChannel = guild.channels.cache.get(1360306086338625749);
     
     if (!announceChannel) {
       console.warn(`⚠️ Không tìm thấy kênh thông báo với ID ${ANNOUNCEMENT_CHANNEL_ID} trong server ${guild.name}`);
@@ -288,9 +288,9 @@ client.on('messageCreate', async (message) => {
     message.reply(`Bạn hiện có ${userPoints} điểm.`);
   }
 
- // Thêm đoạn code này vào phần xử lý message
-if (message.content.startsWith('?help')) {
-  const helpMessage = `
+  // Thêm lệnh để xem trợ giúp về các lệnh
+  if (command === 'help') {
+    const helpMessage = `
 **Hướng dẫn sử dụng bot:**
 \`!hello\` - Kiểm tra bot có hoạt động không
 \`!thongbao NV12: Nội dung nhiệm vụ. @người_nhận1 @người_nhận2 YYYY-MM-DD HH:MM điểm\` - Tạo thông báo nhiệm vụ (chỉ dành cho Admin)
@@ -298,10 +298,9 @@ if (message.content.startsWith('?help')) {
 \`!duyet ID_báo_cáo\` - Duyệt báo cáo (chỉ dành cho Admin)
 \`!tuchoi ID_báo_cáo\` - Từ chối báo cáo (chỉ dành cho Admin)
 \`!diem\` - Xem số điểm hiện có của bạn
-\`?help\` - Hiển thị trợ giúp này
 `;
-  return message.reply(helpMessage);
-}
+    message.reply(helpMessage);
+  }
 });
 
 process.on('unhandledRejection', error => {
