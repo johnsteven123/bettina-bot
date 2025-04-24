@@ -288,9 +288,9 @@ client.on('messageCreate', async (message) => {
     message.reply(`Bạn hiện có ${userPoints} điểm.`);
   }
 
-  // Thêm lệnh để xem trợ giúp về các lệnh
-  if (command === 'help') {
-    const helpMessage = `
+ // Thêm đoạn code này vào phần xử lý message
+if (message.content.startsWith('?help')) {
+  const helpMessage = `
 **Hướng dẫn sử dụng bot:**
 \`!hello\` - Kiểm tra bot có hoạt động không
 \`!thongbao NV12: Nội dung nhiệm vụ. @người_nhận1 @người_nhận2 YYYY-MM-DD HH:MM điểm\` - Tạo thông báo nhiệm vụ (chỉ dành cho Admin)
@@ -298,9 +298,10 @@ client.on('messageCreate', async (message) => {
 \`!duyet ID_báo_cáo\` - Duyệt báo cáo (chỉ dành cho Admin)
 \`!tuchoi ID_báo_cáo\` - Từ chối báo cáo (chỉ dành cho Admin)
 \`!diem\` - Xem số điểm hiện có của bạn
+\`?help\` - Hiển thị trợ giúp này
 `;
-    message.reply(helpMessage);
-  }
+  return message.reply(helpMessage);
+}
 });
 
 process.on('unhandledRejection', error => {
