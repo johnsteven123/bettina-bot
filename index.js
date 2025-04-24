@@ -5,13 +5,13 @@ const app = express();
 require('dotenv').config(); // ← Load biến môi trường từ .env
 
 // Thêm config cho ID kênh
-const ANNOUNCEMENT_CHANNEL_ID = process.env.ANNOUNCEMENT_CHANNEL_ID || '123456789012345678'; // Thay bằng ID thực tế
-const REPORT_CHANNEL_ID = process.env.REPORT_CHANNEL_ID || '123456789012345678'; // Thay bằng ID thực tế
+const ANNOUNCEMENT_CHANNEL_ID = process.env.ANNOUNCEMENT_CHANNEL_ID || '1360306086338625749'; // Thay bằng ID thực tế
+const REPORT_CHANNEL_ID = process.env.REPORT_CHANNEL_ID || '1360306086338625749'; // Thay bằng ID thực tế
 
 // Tên của các role có quyền quản trị (thay thế OWNER_ID)
-const ADMIN_ROLE_NAME = process.env.ADMIN_ROLE_NAME || 'Admin';
+const ADMIN_ROLE_NAME = process.env.ADMIN_ROLE_NAME || '【Chủ tịch】';
 // Tên các role có quyền sử dụng lệnh báo cáo
-const ALLOWED_ROLE_NAMES = ['Member', 'Contributor', 'Moderator']; // Điều chỉnh theo nhu cầu
+const ALLOWED_ROLE_NAMES = ['┠Phó chủ tịch┤', '┠Ban điều hành ┤']; // Điều chỉnh theo nhu cầu
 
 app.get('/', (req, res) => {
   res.send('Bot is running!');
