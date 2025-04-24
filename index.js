@@ -4,6 +4,10 @@ const express = require('express');
 const app = express();
 require('dotenv').config(); // ← Load biến môi trường từ .env
 
+// Thêm config cho ID kênh
+const ANNOUNCEMENT_CHANNEL_ID = process.env.ANNOUNCEMENT_CHANNEL_ID || '123456789012345678'; // Thay bằng ID thực tế
+const REPORT_CHANNEL_ID = process.env.REPORT_CHANNEL_ID || '123456789012345678'; // Thay bằng ID thực tế
+
 app.get('/', (req, res) => {
   res.send('Bot is running!');
 });
@@ -72,8 +76,9 @@ client.on('messageCreate', async (message) => {
     const content = contentWithTitle.slice(titleMatch[0].length).trim();
     if (!content.endsWith('.')) return message.reply('Nội dung nhiệm vụ phải kết thúc bằng dấu chấm!');
 
-    const announcementChannel = message.guild.channels.cache.find(ch => ch.name === 'thong-bao');
-    if (!announcementChannel) return message.reply('Kênh #thong-bao không tồn tại!');
+    // Sử dụng ID kênh thay vì tên kênh
+    const announcementChannel = message.guild.channels.cache.get(ANNOUNCEMENT_CHANNEL_ID);
+    if (!announcementChannel) return message.reply('Kênh thông báo không tồn tại! Vui lòng kiểm tra ID kênh.');
 
     const taskNumber = announcements.length + 1;
     const formattedTaskNumber = `NV${String(taskNumber).padStart(3, '0')}`;
@@ -98,7 +103,7 @@ client.on('messageCreate', async (message) => {
     try {
       await announcementChannel.send(announcementMessage);
     } catch (error) {
-      return message.reply('Có lỗi khi gửi thông báo vào kênh #thong-bao!');
+      return message.reply('Có lỗi khi gửi thông báo vào kênh thông báo!');
     }
 
     if (message.author.id === OWNER_ID) {
@@ -130,8 +135,9 @@ client.on('messageCreate', async (message) => {
       return message.reply('Thông báo đã hết hạn!');
     }
 
-    const reportChannel = message.guild.channels.cache.find(ch => ch.name === 'bao-cao');
-    if (!reportChannel) return message.reply('Kênh #bao-cao không tồn tại!');
+    // Sử dụng ID kênh thay vì tên kênh
+    const reportChannel = message.guild.channels.cache.get(REPORT_CHANNEL_ID);
+    if (!reportChannel) return message.reply('Kênh báo cáo không tồn tại! Vui lòng kiểm tra ID kênh.');
 
     const report = {
       id: Date.now(),
@@ -161,7 +167,8 @@ client.on('messageCreate', async (message) => {
     if (announcement.deadline && Date.now() > announcement.deadline) {
       report.status = 'rejected';
       fs.writeFileSync('reports.json', JSON.stringify(reports));
-      const reportChannel = message.guild.channels.cache.find(ch => ch.name === 'bao-cao');
+      // Sử dụng ID kênh thay vì tên kênh
+      const reportChannel = message.guild.channels.cache.get(REPORT_CHANNEL_ID);
       await reportChannel.send(`Báo cáo ID ${reportId} đã bị **tự động từ chối** vì thông báo đã hết hạn!`);
       return message.reply('Thông báo đã hết hạn!');
     }
@@ -172,7 +179,8 @@ client.on('messageCreate', async (message) => {
     points[report.author] = (points[report.author] || 0) + announcement.points;
     fs.writeFileSync('points.json', JSON.stringify(points));
 
-    const reportChannel = message.guild.channels.cache.find(ch => ch.name === 'bao-cao');
+    // Sử dụng ID kênh thay vì tên kênh
+    const reportChannel = message.guild.channels.cache.get(REPORT_CHANNEL_ID);
     await reportChannel.send(`Báo cáo ID ${reportId} đã được **duyệt** bởi ${message.author.tag}! Đã cộng ${announcement.points} điểm cho <@${report.author}>.`);
     message.reply('Đã duyệt báo cáo!');
   }
@@ -188,7 +196,8 @@ client.on('messageCreate', async (message) => {
     report.status = 'rejected';
     fs.writeFileSync('reports.json', JSON.stringify(reports));
 
-    const reportChannel = message.guild.channels.cache.find(ch => ch.name === 'bao-cao');
+    // Sử dụng ID kênh thay vì tên kênh
+    const reportChannel = message.guild.channels.cache.get(REPORT_CHANNEL_ID);
     await reportChannel.send(`Báo cáo ID ${reportId} đã bị **từ chối** bởi ${message.author.tag}!`);
     message.reply('Đã từ chối báo cáo!');
   }
