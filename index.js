@@ -1,4 +1,4 @@
-const { Client, IntentsBitField } = require('discord.js');
+const { Client, IntentsBitField, PermissionFlagsBits } = require('discord.js');
 const fs = require('fs');
 const express = require('express');
 const app = express();
@@ -7,6 +7,11 @@ require('dotenv').config(); // ← Load biến môi trường từ .env
 // Thêm config cho ID kênh
 const ANNOUNCEMENT_CHANNEL_ID = process.env.ANNOUNCEMENT_CHANNEL_ID || '123456789012345678'; // Thay bằng ID thực tế
 const REPORT_CHANNEL_ID = process.env.REPORT_CHANNEL_ID || '123456789012345678'; // Thay bằng ID thực tế
+
+// Tên của các role có quyền quản trị (thay thế OWNER_ID)
+const ADMIN_ROLE_NAME = process.env.ADMIN_ROLE_NAME || 'Admin';
+// Tên các role có quyền sử dụng lệnh báo cáo
+const ALLOWED_ROLE_NAMES = ['Member', 'Contributor', 'Moderator']; // Điều chỉnh theo nhu cầu
 
 app.get('/', (req, res) => {
   res.send('Bot is running!');
@@ -24,8 +29,6 @@ const client = new Client({
   ],
 });
 
-const OWNER_ID = '1029557880657035294';
-const ALLOWED_ROLES = ['1333820454875435098', '1333822162498490472', '993395084940820490'];
 const announcements = [];
 let reports = [];
 let points = {};
@@ -45,7 +48,43 @@ try {
 
 client.on('ready', () => {
   console.log(`Bot đã sẵn sàng với tên ${client.user.tag}`);
+  
+  // Kiểm tra cấu hình kênh khi bot khởi động
+  checkChannels();
 });
+
+// Hàm kiểm tra các kênh có tồn tại không
+function checkChannels() {
+  client.guilds.cache.forEach(guild => {
+    const announceChannel = guild.channels.cache.get(ANNOUNCEMENT_CHANNEL_ID);
+    const reportChannel = guild.channels.cache.get(REPORT_CHANNEL_ID);
+    
+    if (!announceChannel) {
+      console.warn(`⚠️ Không tìm thấy kênh thông báo với ID ${ANNOUNCEMENT_CHANNEL_ID} trong server ${guild.name}`);
+    }
+    
+    if (!reportChannel) {
+      console.warn(`⚠️ Không tìm thấy kênh báo cáo với ID ${REPORT_CHANNEL_ID} trong server ${guild.name}`);
+    }
+  });
+}
+
+// Hàm kiểm tra người dùng có vai trò admin không
+function hasAdminRole(member) {
+  return member.roles.cache.some(role => 
+    role.name === ADMIN_ROLE_NAME || 
+    role.permissions.has(PermissionFlagsBits.Administrator)
+  );
+}
+
+// Hàm kiểm tra người dùng có vai trò được phép không
+function hasAllowedRole(member) {
+  return member.roles.cache.some(role => 
+    ALLOWED_ROLE_NAMES.includes(role.name) || 
+    role.name === ADMIN_ROLE_NAME || 
+    role.permissions.has(PermissionFlagsBits.Administrator)
+  );
+}
 
 client.on('messageCreate', async (message) => {
   if (message.author.bot || !message.content.startsWith('!')) return;
@@ -58,7 +97,10 @@ client.on('messageCreate', async (message) => {
   }
 
   if (command === 'thongbao') {
-    if (message.author.id !== OWNER_ID) return message.reply('Chỉ chủ club được dùng lệnh này!');
+    // Kiểm tra quyền admin thay vì ID cố định
+    if (!hasAdminRole(message.member)) {
+      return message.reply('Bạn không có quyền sử dụng lệnh này! Cần có vai trò Admin.');
+    }
 
     const points = parseInt(args[args.length - 1]);
     const deadline = args.slice(args.length - 3, args.length - 1).join(' ');
@@ -76,9 +118,15 @@ client.on('messageCreate', async (message) => {
     const content = contentWithTitle.slice(titleMatch[0].length).trim();
     if (!content.endsWith('.')) return message.reply('Nội dung nhiệm vụ phải kết thúc bằng dấu chấm!');
 
-    // Sử dụng ID kênh thay vì tên kênh
-    const announcementChannel = message.guild.channels.cache.get(ANNOUNCEMENT_CHANNEL_ID);
-    if (!announcementChannel) return message.reply('Kênh thông báo không tồn tại! Vui lòng kiểm tra ID kênh.');
+    // Thử tìm kênh bằng ID trước, nếu không tìm thấy thì tìm bằng tên
+    let announcementChannel = message.guild.channels.cache.get(ANNOUNCEMENT_CHANNEL_ID);
+    if (!announcementChannel) {
+      // Thử tìm bằng tên nếu không tìm thấy bằng ID
+      announcementChannel = message.guild.channels.cache.find(ch => ch.name === 'thong-bao');
+      if (!announcementChannel) {
+        return message.reply('Không tìm thấy kênh thông báo! Vui lòng kiểm tra lại ID kênh hoặc tạo kênh có tên "thong-bao".');
+      }
+    }
 
     const taskNumber = announcements.length + 1;
     const formattedTaskNumber = `NV${String(taskNumber).padStart(3, '0')}`;
@@ -102,21 +150,18 @@ client.on('messageCreate', async (message) => {
     const announcementMessage = `${formattedTaskNumber}\n${content}\nSố điểm: ${points}\nNgười nhận: ${receiverIds.map(id => `<@${id}>`).join(', ')}\nDeadline: ${deadline}`;
     try {
       await announcementChannel.send(announcementMessage);
+      message.reply('Thông báo đã được gửi thành công!');
     } catch (error) {
-      return message.reply('Có lỗi khi gửi thông báo vào kênh thông báo!');
-    }
-
-    if (message.author.id === OWNER_ID) {
-      const hasRole = message.member.roles.cache.some(role => ALLOWED_ROLES.includes(role.id));
-      if (!hasRole) {
-        message.reply('Thông báo đã được gửi!');
-      }
+      console.error('Lỗi khi gửi thông báo:', error);
+      return message.reply('Có lỗi khi gửi thông báo vào kênh! Vui lòng kiểm tra quyền của bot.');
     }
   }
 
   if (command === 'baocao') {
-    const hasRole = message.member.roles.cache.some(role => ALLOWED_ROLES.includes(role.id));
-    if (!hasRole) return message.reply('Bạn không có quyền gửi báo cáo!');
+    // Kiểm tra vai trò thay vì ID cố định
+    if (!hasAllowedRole(message.member)) {
+      return message.reply('Bạn không có quyền gửi báo cáo! Cần có vai trò được phép.');
+    }
 
     const announcementId = parseInt(args[0]);
     const content = args.slice(1).join(' ');
@@ -135,9 +180,15 @@ client.on('messageCreate', async (message) => {
       return message.reply('Thông báo đã hết hạn!');
     }
 
-    // Sử dụng ID kênh thay vì tên kênh
-    const reportChannel = message.guild.channels.cache.get(REPORT_CHANNEL_ID);
-    if (!reportChannel) return message.reply('Kênh báo cáo không tồn tại! Vui lòng kiểm tra ID kênh.');
+    // Thử tìm kênh bằng ID trước, nếu không tìm thấy thì tìm bằng tên
+    let reportChannel = message.guild.channels.cache.get(REPORT_CHANNEL_ID);
+    if (!reportChannel) {
+      // Thử tìm bằng tên nếu không tìm thấy bằng ID
+      reportChannel = message.guild.channels.cache.find(ch => ch.name === 'bao-cao');
+      if (!reportChannel) {
+        return message.reply('Không tìm thấy kênh báo cáo! Vui lòng kiểm tra lại ID kênh hoặc tạo kênh có tên "bao-cao".');
+      }
+    }
 
     const report = {
       id: Date.now(),
@@ -154,7 +205,10 @@ client.on('messageCreate', async (message) => {
   }
 
   if (command === 'duyet') {
-    if (message.author.id !== OWNER_ID) return message.reply('Chỉ chủ club được dùng lệnh này!');
+    // Kiểm tra quyền admin thay vì ID cố định
+    if (!hasAdminRole(message.member)) {
+      return message.reply('Bạn không có quyền sử dụng lệnh này! Cần có vai trò Admin.');
+    }
 
     const reportId = parseInt(args[0]);
     reports = JSON.parse(fs.readFileSync('reports.json', 'utf-8') || '[]');
@@ -167,8 +221,16 @@ client.on('messageCreate', async (message) => {
     if (announcement.deadline && Date.now() > announcement.deadline) {
       report.status = 'rejected';
       fs.writeFileSync('reports.json', JSON.stringify(reports));
-      // Sử dụng ID kênh thay vì tên kênh
-      const reportChannel = message.guild.channels.cache.get(REPORT_CHANNEL_ID);
+      
+      // Thử tìm kênh bằng ID trước, nếu không tìm thấy thì tìm bằng tên
+      let reportChannel = message.guild.channels.cache.get(REPORT_CHANNEL_ID);
+      if (!reportChannel) {
+        reportChannel = message.guild.channels.cache.find(ch => ch.name === 'bao-cao');
+        if (!reportChannel) {
+          return message.reply('Không tìm thấy kênh báo cáo! Vui lòng kiểm tra lại ID kênh hoặc tạo kênh có tên "bao-cao".');
+        }
+      }
+      
       await reportChannel.send(`Báo cáo ID ${reportId} đã bị **tự động từ chối** vì thông báo đã hết hạn!`);
       return message.reply('Thông báo đã hết hạn!');
     }
@@ -179,14 +241,24 @@ client.on('messageCreate', async (message) => {
     points[report.author] = (points[report.author] || 0) + announcement.points;
     fs.writeFileSync('points.json', JSON.stringify(points));
 
-    // Sử dụng ID kênh thay vì tên kênh
-    const reportChannel = message.guild.channels.cache.get(REPORT_CHANNEL_ID);
+    // Thử tìm kênh bằng ID trước, nếu không tìm thấy thì tìm bằng tên
+    let reportChannel = message.guild.channels.cache.get(REPORT_CHANNEL_ID);
+    if (!reportChannel) {
+      reportChannel = message.guild.channels.cache.find(ch => ch.name === 'bao-cao');
+      if (!reportChannel) {
+        return message.reply('Không tìm thấy kênh báo cáo! Vui lòng kiểm tra lại ID kênh hoặc tạo kênh có tên "bao-cao".');
+      }
+    }
+    
     await reportChannel.send(`Báo cáo ID ${reportId} đã được **duyệt** bởi ${message.author.tag}! Đã cộng ${announcement.points} điểm cho <@${report.author}>.`);
     message.reply('Đã duyệt báo cáo!');
   }
 
   if (command === 'tuchoi') {
-    if (message.author.id !== OWNER_ID) return message.reply('Chỉ chủ club được dùng lệnh này!');
+    // Kiểm tra quyền admin thay vì ID cố định
+    if (!hasAdminRole(message.member)) {
+      return message.reply('Bạn không có quyền sử dụng lệnh này! Cần có vai trò Admin.');
+    }
 
     const reportId = parseInt(args[0]);
     reports = JSON.parse(fs.readFileSync('reports.json', 'utf-8') || '[]');
@@ -196,10 +268,38 @@ client.on('messageCreate', async (message) => {
     report.status = 'rejected';
     fs.writeFileSync('reports.json', JSON.stringify(reports));
 
-    // Sử dụng ID kênh thay vì tên kênh
-    const reportChannel = message.guild.channels.cache.get(REPORT_CHANNEL_ID);
+    // Thử tìm kênh bằng ID trước, nếu không tìm thấy thì tìm bằng tên
+    let reportChannel = message.guild.channels.cache.get(REPORT_CHANNEL_ID);
+    if (!reportChannel) {
+      reportChannel = message.guild.channels.cache.find(ch => ch.name === 'bao-cao');
+      if (!reportChannel) {
+        return message.reply('Không tìm thấy kênh báo cáo! Vui lòng kiểm tra lại ID kênh hoặc tạo kênh có tên "bao-cao".');
+      }
+    }
+    
     await reportChannel.send(`Báo cáo ID ${reportId} đã bị **từ chối** bởi ${message.author.tag}!`);
     message.reply('Đã từ chối báo cáo!');
+  }
+
+  // Thêm lệnh để xem điểm của mình
+  if (command === 'diem') {
+    const userId = message.author.id;
+    const userPoints = points[userId] || 0;
+    message.reply(`Bạn hiện có ${userPoints} điểm.`);
+  }
+
+  // Thêm lệnh để xem trợ giúp về các lệnh
+  if (command === 'help') {
+    const helpMessage = `
+**Hướng dẫn sử dụng bot:**
+\`!hello\` - Kiểm tra bot có hoạt động không
+\`!thongbao NV12: Nội dung nhiệm vụ. @người_nhận1 @người_nhận2 YYYY-MM-DD HH:MM điểm\` - Tạo thông báo nhiệm vụ (chỉ dành cho Admin)
+\`!baocao ID_nhiệm_vụ nội_dung_báo_cáo\` - Gửi báo cáo hoàn thành nhiệm vụ
+\`!duyet ID_báo_cáo\` - Duyệt báo cáo (chỉ dành cho Admin)
+\`!tuchoi ID_báo_cáo\` - Từ chối báo cáo (chỉ dành cho Admin)
+\`!diem\` - Xem số điểm hiện có của bạn
+`;
+    message.reply(helpMessage);
   }
 });
 
