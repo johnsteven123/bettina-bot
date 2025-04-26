@@ -5,8 +5,8 @@ const app = express();
 require('dotenv').config(); // ← Load biến môi trường từ .env
 
 // Thêm config cho ID kênh
-const ANNOUNCEMENT_CHANNEL_ID = process.env.ANNOUNCEMENT_CHANNEL_ID || '123456789012345678'; // Thay bằng ID thực tế
-const REPORT_CHANNEL_ID = process.env.REPORT_CHANNEL_ID || '123456789012345678'; // Thay bằng ID thực tế
+const ANNOUNCEMENT_CHANNEL_ID = process.env.ANNOUNCEMENT_CHANNEL_ID || '1360306086338625749'; // Thay bằng ID thực tế
+const REPORT_CHANNEL_ID = process.env.REPORT_CHANNEL_ID || '1360306086338625749'; // Thay bằng ID thực tế
 
 // Tên của các role có quyền quản trị (thay thế OWNER_ID)
 const ADMIN_ROLE_NAME = process.env.ADMIN_ROLE_NAME || '【Chủ tịch】';
