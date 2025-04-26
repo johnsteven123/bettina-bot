@@ -5,8 +5,8 @@ const app = express();
 require('dotenv').config(); // ← Load biến môi trường từ .env
 
 // Thêm config cho ID kênh
-const ANNOUNCEMENT_CHANNEL_ID = process.env.ANNOUNCEMENT_CHANNEL_ID || '1360306086338625749'; // Thay bằng ID thực tế
-const REPORT_CHANNEL_ID = process.env.REPORT_CHANNEL_ID || '1360306086338625749'; // Thay bằng ID thực tế
+const ANNOUNCEMENT_CHANNEL_ID = process.env.ANNOUNCEMENT_CHANNEL_ID || '1360306086338625749'; // ID thực tế
+const REPORT_CHANNEL_ID = process.env.REPORT_CHANNEL_ID || '1360306086338625749'; // ID thực tế
 
 // Tên của các role có quyền quản trị (thay thế OWNER_ID)
 const ADMIN_ROLE_NAME = process.env.ADMIN_ROLE_NAME || '【Chủ tịch】';
@@ -56,8 +56,8 @@ client.on('ready', () => {
 // Hàm kiểm tra các kênh có tồn tại không
 function checkChannels() {
   client.guilds.cache.forEach(guild => {
-    const announceChannel = guild.channels.cache.get(1360306086338625749);
-    const reportChannel = guild.channels.cache.get(1360306086338625749);
+    const announceChannel = guild.channels.cache.get(ANNOUNCEMENT_CHANNEL_ID);
+    const reportChannel = guild.channels.cache.get(REPORT_CHANNEL_ID);
     
     if (!announceChannel) {
       console.warn(`⚠️ Không tìm thấy kênh thông báo với ID ${ANNOUNCEMENT_CHANNEL_ID} trong server ${guild.name}`);
@@ -113,8 +113,13 @@ client.on('messageCreate', async (message) => {
       return message.reply('Vui lòng nhập đúng cú pháp! Ví dụ: !thongbao NV12: Nội dung nhiệm vụ. @username1 @username2 2023-10-25 14:00 50');
     }
 
-    const titleMatch = contentWithTitle.match(/^NV\d+:/);
+    const titleMatch = contentWithTitle.match(/^NV(\d+):/);
     if (!titleMatch) return message.reply('Tiêu đề phải bắt đầu bằng NVXXX: (ví dụ: NV12:)');
+    
+    // Lấy mã số nhiệm vụ từ input của người dùng
+    const taskNumber = titleMatch[1];
+    const formattedTaskNumber = `NV${taskNumber.padStart(3, '0')}`;
+    
     const content = contentWithTitle.slice(titleMatch[0].length).trim();
     if (!content.endsWith('.')) return message.reply('Nội dung nhiệm vụ phải kết thúc bằng dấu chấm!');
 
@@ -128,11 +133,8 @@ client.on('messageCreate', async (message) => {
       }
     }
 
-    const taskNumber = announcements.length + 1;
-    const formattedTaskNumber = `NV${String(taskNumber).padStart(3, '0')}`;
-
     const announcement = {
-      id: taskNumber,
+      id: parseInt(taskNumber), // Sử dụng id từ mã NV người dùng nhập
       content,
       points,
       author: message.author.id,
@@ -148,9 +150,29 @@ client.on('messageCreate', async (message) => {
     }
 
     const announcementMessage = `${formattedTaskNumber}\n${content}\nSố điểm: ${points}\nNgười nhận: ${receiverIds.map(id => `<@${id}>`).join(', ')}\nDeadline: ${deadline}`;
+    
     try {
       await announcementChannel.send(announcementMessage);
-      message.reply('Thông báo đã được gửi thành công!');
+      
+      // Gửi thông báo thành công riêng tư cho người dùng
+      try {
+        // Gửi tin nhắn riêng tư đến người tạo lệnh
+        await message.author.send('Thông báo đã được gửi thành công!');
+        
+        // Xóa tin nhắn gốc chứa lệnh để người khác không thấy
+        if (message.channel.type !== 'DM' && message.guild.me.permissions.has(PermissionFlagsBits.ManageMessages)) {
+          await message.delete().catch(err => console.error('Không thể xóa tin nhắn lệnh:', err));
+        } else {
+          // Nếu không thể xóa, gửi reply tạm thời và xóa sau 5 giây
+          const replyMsg = await message.reply('Thông báo đã được gửi thành công!');
+          setTimeout(() => replyMsg.delete().catch(() => {}), 5000);
+        }
+      } catch (dmError) {
+        // Nếu không thể gửi DM (người dùng chặn DM), gửi tin nhắn trong kênh nhưng xóa sau vài giây
+        console.error('Không thể gửi DM:', dmError);
+        const replyMsg = await message.reply('Thông báo đã được gửi thành công! (Tin nhắn này sẽ tự xóa sau 5 giây)');
+        setTimeout(() => replyMsg.delete().catch(() => {}), 5000);
+      }
     } catch (error) {
       console.error('Lỗi khi gửi thông báo:', error);
       return message.reply('Có lỗi khi gửi thông báo vào kênh! Vui lòng kiểm tra quyền của bot.');
@@ -288,6 +310,62 @@ client.on('messageCreate', async (message) => {
     message.reply(`Bạn hiện có ${userPoints} điểm.`);
   }
 
+  // Thêm lệnh reset NV
+  if (command === 'resetnv') {
+    // Kiểm tra quyền admin
+    if (!hasAdminRole(message.member)) {
+      return message.reply('Bạn không có quyền sử dụng lệnh này! Cần có vai trò Admin.');
+    }
+
+    try {
+      // Option để reset từ một số cụ thể
+      if (args[0] === 'from' && !isNaN(parseInt(args[1]))) {
+        const startFrom = parseInt(args[1]);
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        fs.writeFileSync(`announcements_backup_${timestamp}.json`, JSON.stringify(announcements));
+        
+        // Chỉ giữ lại các nhiệm vụ có ID nhỏ hơn startFrom
+        const filteredAnnouncements = announcements.filter(a => a.id < startFrom);
+        announcements.length = 0;
+        announcements.push(...filteredAnnouncements);
+        fs.writeFileSync('announcements.json', JSON.stringify(announcements));
+        
+        // Gửi thông báo qua DM thay vì reply công khai
+        try {
+          await message.author.send(`Đã reset danh sách nhiệm vụ từ ID ${startFrom}. Các nhiệm vụ cũ đã được lưu vào file backup.`);
+          if (message.guild.me.permissions.has(PermissionFlagsBits.ManageMessages)) {
+            await message.delete().catch(err => console.error('Không thể xóa tin nhắn lệnh:', err));
+          }
+        } catch (dmError) {
+          const replyMsg = await message.reply(`Đã reset danh sách nhiệm vụ từ ID ${startFrom}. (Tin nhắn này sẽ tự xóa sau 5 giây)`);
+          setTimeout(() => replyMsg.delete().catch(() => {}), 5000);
+        }
+        return;
+      }
+      
+      // Reset hoàn toàn
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      fs.writeFileSync(`announcements_backup_${timestamp}.json`, JSON.stringify(announcements));
+      
+      announcements.length = 0;
+      fs.writeFileSync('announcements.json', '[]');
+      
+      // Gửi thông báo qua DM thay vì reply công khai
+      try {
+        await message.author.send('Đã reset danh sách nhiệm vụ thành công! Các nhiệm vụ cũ đã được lưu vào file backup.');
+        if (message.guild.me.permissions.has(PermissionFlagsBits.ManageMessages)) {
+          await message.delete().catch(err => console.error('Không thể xóa tin nhắn lệnh:', err));
+        }
+      } catch (dmError) {
+        const replyMsg = await message.reply('Đã reset danh sách nhiệm vụ thành công! (Tin nhắn này sẽ tự xóa sau 5 giây)');
+        setTimeout(() => replyMsg.delete().catch(() => {}), 5000);
+      }
+    } catch (error) {
+      console.error('Lỗi khi reset nhiệm vụ:', error);
+      message.reply('Có lỗi xảy ra khi reset nhiệm vụ!');
+    }
+  }
+
   // Thêm lệnh để xem trợ giúp về các lệnh
   if (command === 'help') {
     const helpMessage = `
@@ -298,6 +376,8 @@ client.on('messageCreate', async (message) => {
 \`!duyet ID_báo_cáo\` - Duyệt báo cáo (chỉ dành cho Admin)
 \`!tuchoi ID_báo_cáo\` - Từ chối báo cáo (chỉ dành cho Admin)
 \`!diem\` - Xem số điểm hiện có của bạn
+\`!resetnv\` - Reset danh sách nhiệm vụ (chỉ dành cho Admin)
+\`!resetnv from 10\` - Reset danh sách nhiệm vụ từ ID 10 trở đi (chỉ dành cho Admin)
 `;
     message.reply(helpMessage);
   }
