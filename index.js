@@ -86,6 +86,36 @@ function hasAllowedRole(member) {
   );
 }
 
+// Hàm xử lý tin nhắn riêng tư hoặc tin nhắn tạm thời
+async function sendPrivateOrTempMessage(user, channel, content) {
+  try {
+    // Thử gửi tin nhắn qua DM trước
+    await user.send(content);
+  } catch (dmError) {
+    // Nếu không thể gửi DM, gửi tin nhắn tạm thời vào kênh và tự xóa sau 5 giây
+    try {
+      const tempMsg = await channel.send(`${content} (Tin nhắn này sẽ tự xóa sau 5 giây)`);
+      setTimeout(() => tempMsg.delete().catch(() => {}), 5000);
+    } catch (channelError) {
+      console.error('Không thể gửi tin nhắn vào kênh:', channelError);
+    }
+  }
+}
+
+// Hàm xóa tin nhắn lệnh nếu có quyền
+async function deleteCommandMessage(message) {
+  if (message.guild && message.guild.me.permissions.has(PermissionFlagsBits.ManageMessages)) {
+    try {
+      await message.delete();
+      return true;
+    } catch (error) {
+      console.error('Không thể xóa tin nhắn lệnh:', error);
+      return false;
+    }
+  }
+  return false;
+}
+
 client.on('messageCreate', async (message) => {
   if (message.author.bot || !message.content.startsWith('!')) return;
 
@@ -96,10 +126,14 @@ client.on('messageCreate', async (message) => {
     return message.reply('lô cc!');
   }
 
+  // === LỆNH THONGBAO ===
   if (command === 'thongbao') {
-    // Kiểm tra quyền admin thay vì ID cố định
+    // Xóa tin nhắn lệnh ngay lập tức nếu có thể
+    deleteCommandMessage(message);
+    
+    // Kiểm tra quyền admin
     if (!hasAdminRole(message.member)) {
-      return message.reply('Bạn không có quyền sử dụng lệnh này! Cần có vai trò Admin.');
+      return sendPrivateOrTempMessage(message.author, message.channel, 'Bạn không có quyền sử dụng lệnh này! Cần có vai trò Admin.');
     }
 
     const points = parseInt(args[args.length - 1]);
@@ -110,18 +144,22 @@ client.on('messageCreate', async (message) => {
     const contentWithTitle = args.slice(0, contentEndIndex - receiverTags.length).join(' ');
 
     if (!contentWithTitle || receiverIds.length === 0 || !deadline || isNaN(points) || !/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(deadline)) {
-      return message.reply('Vui lòng nhập đúng cú pháp! Ví dụ: !thongbao NV12: Nội dung nhiệm vụ. @username1 @username2 2023-10-25 14:00 50');
+      return sendPrivateOrTempMessage(message.author, message.channel, 'Vui lòng nhập đúng cú pháp! Ví dụ: !thongbao NV12: Nội dung nhiệm vụ. @username1 @username2 2023-10-25 14:00 50');
     }
 
     const titleMatch = contentWithTitle.match(/^NV(\d+):/);
-    if (!titleMatch) return message.reply('Tiêu đề phải bắt đầu bằng NVXXX: (ví dụ: NV12:)');
+    if (!titleMatch) {
+      return sendPrivateOrTempMessage(message.author, message.channel, 'Tiêu đề phải bắt đầu bằng NVXXX: (ví dụ: NV12:)');
+    }
     
     // Lấy mã số nhiệm vụ từ input của người dùng
     const taskNumber = titleMatch[1];
     const formattedTaskNumber = `NV${taskNumber.padStart(3, '0')}`;
     
     const content = contentWithTitle.slice(titleMatch[0].length).trim();
-    if (!content.endsWith('.')) return message.reply('Nội dung nhiệm vụ phải kết thúc bằng dấu chấm!');
+    if (!content.endsWith('.')) {
+      return sendPrivateOrTempMessage(message.author, message.channel, 'Nội dung nhiệm vụ phải kết thúc bằng dấu chấm!');
+    }
 
     // Thử tìm kênh bằng ID trước, nếu không tìm thấy thì tìm bằng tên
     let announcementChannel = message.guild.channels.cache.get(ANNOUNCEMENT_CHANNEL_ID);
@@ -129,7 +167,7 @@ client.on('messageCreate', async (message) => {
       // Thử tìm bằng tên nếu không tìm thấy bằng ID
       announcementChannel = message.guild.channels.cache.find(ch => ch.name === 'thong-bao');
       if (!announcementChannel) {
-        return message.reply('Không tìm thấy kênh thông báo! Vui lòng kiểm tra lại ID kênh hoặc tạo kênh có tên "thong-bao".');
+        return sendPrivateOrTempMessage(message.author, message.channel, 'Không tìm thấy kênh thông báo! Vui lòng kiểm tra lại ID kênh hoặc tạo kênh có tên "thong-bao".');
       }
     }
 
@@ -146,60 +184,51 @@ client.on('messageCreate', async (message) => {
       announcements.push(announcement);
       fs.writeFileSync('announcements.json', JSON.stringify(announcements));
     } catch (error) {
-      return message.reply('Có lỗi khi lưu thông báo!');
+      return sendPrivateOrTempMessage(message.author, message.channel, 'Có lỗi khi lưu thông báo!');
     }
 
     const announcementMessage = `${formattedTaskNumber}\n${content}\nSố điểm: ${points}\nNgười nhận: ${receiverIds.map(id => `<@${id}>`).join(', ')}\nDeadline: ${deadline}`;
     
     try {
       await announcementChannel.send(announcementMessage);
-      
-      // Gửi thông báo thành công riêng tư cho người dùng
-      try {
-        // Gửi tin nhắn riêng tư đến người tạo lệnh
-        await message.author.send('Thông báo đã được gửi thành công!');
-        
-        // Xóa tin nhắn gốc chứa lệnh để người khác không thấy
-        if (message.channel.type !== 'DM' && message.guild.me.permissions.has(PermissionFlagsBits.ManageMessages)) {
-          await message.delete().catch(err => console.error('Không thể xóa tin nhắn lệnh:', err));
-        } else {
-          // Nếu không thể xóa, gửi reply tạm thời và xóa sau 5 giây
-          const replyMsg = await message.reply('Thông báo đã được gửi thành công!');
-          setTimeout(() => replyMsg.delete().catch(() => {}), 5000);
-        }
-      } catch (dmError) {
-        // Nếu không thể gửi DM (người dùng chặn DM), gửi tin nhắn trong kênh nhưng xóa sau vài giây
-        console.error('Không thể gửi DM:', dmError);
-        const replyMsg = await message.reply('Thông báo đã được gửi thành công! (Tin nhắn này sẽ tự xóa sau 5 giây)');
-        setTimeout(() => replyMsg.delete().catch(() => {}), 5000);
-      }
+      sendPrivateOrTempMessage(message.author, message.channel, 'Thông báo đã được gửi thành công!');
     } catch (error) {
       console.error('Lỗi khi gửi thông báo:', error);
-      return message.reply('Có lỗi khi gửi thông báo vào kênh! Vui lòng kiểm tra quyền của bot.');
+      sendPrivateOrTempMessage(message.author, message.channel, 'Có lỗi khi gửi thông báo vào kênh! Vui lòng kiểm tra quyền của bot.');
     }
   }
 
+  // === LỆNH BAOCAO ===
   if (command === 'baocao') {
-    // Kiểm tra vai trò thay vì ID cố định
+    // Xóa tin nhắn lệnh ngay lập tức nếu có thể
+    deleteCommandMessage(message);
+    
+    // Kiểm tra vai trò
     if (!hasAllowedRole(message.member)) {
-      return message.reply('Bạn không có quyền gửi báo cáo! Cần có vai trò được phép.');
+      return sendPrivateOrTempMessage(message.author, message.channel, 'Bạn không có quyền gửi báo cáo! Cần có vai trò được phép.');
     }
 
     const announcementId = parseInt(args[0]);
     const content = args.slice(1).join(' ');
-    if (isNaN(announcementId) || !content) return message.reply('Vui lòng nhập ID thông báo và nội dung báo cáo!');
+    if (isNaN(announcementId) || !content) {
+      return sendPrivateOrTempMessage(message.author, message.channel, 'Vui lòng nhập ID thông báo và nội dung báo cáo!');
+    }
 
-    if (content.length > 5000) return message.reply('Báo cáo không được vượt quá 5000 chữ!');
+    if (content.length > 5000) {
+      return sendPrivateOrTempMessage(message.author, message.channel, 'Báo cáo không được vượt quá 5000 chữ!');
+    }
 
     const announcement = announcements.find(a => a.id === announcementId);
-    if (!announcement) return message.reply('Thông báo không tồn tại!');
+    if (!announcement) {
+      return sendPrivateOrTempMessage(message.author, message.channel, 'Thông báo không tồn tại!');
+    }
 
     if (!announcement.receivers.includes(message.author.id)) {
-      return message.reply('Bạn không phải là người nhận của thông báo này!');
+      return sendPrivateOrTempMessage(message.author, message.channel, 'Bạn không phải là người nhận của thông báo này!');
     }
 
     if (announcement.deadline && Date.now() > announcement.deadline) {
-      return message.reply('Thông báo đã hết hạn!');
+      return sendPrivateOrTempMessage(message.author, message.channel, 'Thông báo đã hết hạn!');
     }
 
     // Thử tìm kênh bằng ID trước, nếu không tìm thấy thì tìm bằng tên
@@ -208,7 +237,7 @@ client.on('messageCreate', async (message) => {
       // Thử tìm bằng tên nếu không tìm thấy bằng ID
       reportChannel = message.guild.channels.cache.find(ch => ch.name === 'bao-cao');
       if (!reportChannel) {
-        return message.reply('Không tìm thấy kênh báo cáo! Vui lòng kiểm tra lại ID kênh hoặc tạo kênh có tên "bao-cao".');
+        return sendPrivateOrTempMessage(message.author, message.channel, 'Không tìm thấy kênh báo cáo! Vui lòng kiểm tra lại ID kênh hoặc tạo kênh có tên "bao-cao".');
       }
     }
 
@@ -223,22 +252,30 @@ client.on('messageCreate', async (message) => {
     fs.writeFileSync('reports.json', JSON.stringify(reports));
 
     await reportChannel.send(`**Báo cáo từ ${message.author.tag}** (ID: ${report.id}, Thông báo ID: ${announcementId})\n${content}\n**Trạng thái**: Đang chờ duyệt`);
-    message.reply('Báo cáo của bạn đã được gửi và đang chờ duyệt!');
+    sendPrivateOrTempMessage(message.author, message.channel, 'Báo cáo của bạn đã được gửi và đang chờ duyệt!');
   }
 
+  // === LỆNH DUYET ===
   if (command === 'duyet') {
-    // Kiểm tra quyền admin thay vì ID cố định
+    // Xóa tin nhắn lệnh ngay lập tức nếu có thể
+    deleteCommandMessage(message);
+    
+    // Kiểm tra quyền admin
     if (!hasAdminRole(message.member)) {
-      return message.reply('Bạn không có quyền sử dụng lệnh này! Cần có vai trò Admin.');
+      return sendPrivateOrTempMessage(message.author, message.channel, 'Bạn không có quyền sử dụng lệnh này! Cần có vai trò Admin.');
     }
 
     const reportId = parseInt(args[0]);
     reports = JSON.parse(fs.readFileSync('reports.json', 'utf-8') || '[]');
     const report = reports.find(r => r.id === reportId);
-    if (!report || report.status !== 'pending') return message.reply('Báo cáo không tồn tại hoặc đã được xử lý!');
+    if (!report || report.status !== 'pending') {
+      return sendPrivateOrTempMessage(message.author, message.channel, 'Báo cáo không tồn tại hoặc đã được xử lý!');
+    }
 
     const announcement = announcements.find(a => a.id === report.announcementId);
-    if (!announcement) return message.reply('Thông báo không tồn tại!');
+    if (!announcement) {
+      return sendPrivateOrTempMessage(message.author, message.channel, 'Thông báo không tồn tại!');
+    }
 
     if (announcement.deadline && Date.now() > announcement.deadline) {
       report.status = 'rejected';
@@ -249,12 +286,12 @@ client.on('messageCreate', async (message) => {
       if (!reportChannel) {
         reportChannel = message.guild.channels.cache.find(ch => ch.name === 'bao-cao');
         if (!reportChannel) {
-          return message.reply('Không tìm thấy kênh báo cáo! Vui lòng kiểm tra lại ID kênh hoặc tạo kênh có tên "bao-cao".');
+          return sendPrivateOrTempMessage(message.author, message.channel, 'Không tìm thấy kênh báo cáo! Vui lòng kiểm tra lại ID kênh hoặc tạo kênh có tên "bao-cao".');
         }
       }
       
       await reportChannel.send(`Báo cáo ID ${reportId} đã bị **tự động từ chối** vì thông báo đã hết hạn!`);
-      return message.reply('Thông báo đã hết hạn!');
+      return sendPrivateOrTempMessage(message.author, message.channel, 'Thông báo đã hết hạn!');
     }
 
     report.status = 'approved';
@@ -268,24 +305,30 @@ client.on('messageCreate', async (message) => {
     if (!reportChannel) {
       reportChannel = message.guild.channels.cache.find(ch => ch.name === 'bao-cao');
       if (!reportChannel) {
-        return message.reply('Không tìm thấy kênh báo cáo! Vui lòng kiểm tra lại ID kênh hoặc tạo kênh có tên "bao-cao".');
+        return sendPrivateOrTempMessage(message.author, message.channel, 'Không tìm thấy kênh báo cáo! Vui lòng kiểm tra lại ID kênh hoặc tạo kênh có tên "bao-cao".');
       }
     }
     
     await reportChannel.send(`Báo cáo ID ${reportId} đã được **duyệt** bởi ${message.author.tag}! Đã cộng ${announcement.points} điểm cho <@${report.author}>.`);
-    message.reply('Đã duyệt báo cáo!');
+    sendPrivateOrTempMessage(message.author, message.channel, 'Đã duyệt báo cáo!');
   }
 
+  // === LỆNH TUCHOI ===
   if (command === 'tuchoi') {
-    // Kiểm tra quyền admin thay vì ID cố định
+    // Xóa tin nhắn lệnh ngay lập tức nếu có thể
+    deleteCommandMessage(message);
+    
+    // Kiểm tra quyền admin
     if (!hasAdminRole(message.member)) {
-      return message.reply('Bạn không có quyền sử dụng lệnh này! Cần có vai trò Admin.');
+      return sendPrivateOrTempMessage(message.author, message.channel, 'Bạn không có quyền sử dụng lệnh này! Cần có vai trò Admin.');
     }
 
     const reportId = parseInt(args[0]);
     reports = JSON.parse(fs.readFileSync('reports.json', 'utf-8') || '[]');
     const report = reports.find(r => r.id === reportId);
-    if (!report || report.status !== 'pending') return message.reply('Báo cáo không tồn tại hoặc đã được xử lý!');
+    if (!report || report.status !== 'pending') {
+      return sendPrivateOrTempMessage(message.author, message.channel, 'Báo cáo không tồn tại hoặc đã được xử lý!');
+    }
 
     report.status = 'rejected';
     fs.writeFileSync('reports.json', JSON.stringify(reports));
@@ -295,26 +338,29 @@ client.on('messageCreate', async (message) => {
     if (!reportChannel) {
       reportChannel = message.guild.channels.cache.find(ch => ch.name === 'bao-cao');
       if (!reportChannel) {
-        return message.reply('Không tìm thấy kênh báo cáo! Vui lòng kiểm tra lại ID kênh hoặc tạo kênh có tên "bao-cao".');
+        return sendPrivateOrTempMessage(message.author, message.channel, 'Không tìm thấy kênh báo cáo! Vui lòng kiểm tra lại ID kênh hoặc tạo kênh có tên "bao-cao".');
       }
     }
     
     await reportChannel.send(`Báo cáo ID ${reportId} đã bị **từ chối** bởi ${message.author.tag}!`);
-    message.reply('Đã từ chối báo cáo!');
+    sendPrivateOrTempMessage(message.author, message.channel, 'Đã từ chối báo cáo!');
   }
 
-  // Thêm lệnh để xem điểm của mình
+  // === LỆNH DIEM ===
   if (command === 'diem') {
     const userId = message.author.id;
     const userPoints = points[userId] || 0;
     message.reply(`Bạn hiện có ${userPoints} điểm.`);
   }
 
-  // Thêm lệnh reset NV
+  // === LỆNH RESETNV ===
   if (command === 'resetnv') {
+    // Xóa tin nhắn lệnh ngay lập tức nếu có thể
+    deleteCommandMessage(message);
+    
     // Kiểm tra quyền admin
     if (!hasAdminRole(message.member)) {
-      return message.reply('Bạn không có quyền sử dụng lệnh này! Cần có vai trò Admin.');
+      return sendPrivateOrTempMessage(message.author, message.channel, 'Bạn không có quyền sử dụng lệnh này! Cần có vai trò Admin.');
     }
 
     try {
@@ -330,16 +376,7 @@ client.on('messageCreate', async (message) => {
         announcements.push(...filteredAnnouncements);
         fs.writeFileSync('announcements.json', JSON.stringify(announcements));
         
-        // Gửi thông báo qua DM thay vì reply công khai
-        try {
-          await message.author.send(`Đã reset danh sách nhiệm vụ từ ID ${startFrom}. Các nhiệm vụ cũ đã được lưu vào file backup.`);
-          if (message.guild.me.permissions.has(PermissionFlagsBits.ManageMessages)) {
-            await message.delete().catch(err => console.error('Không thể xóa tin nhắn lệnh:', err));
-          }
-        } catch (dmError) {
-          const replyMsg = await message.reply(`Đã reset danh sách nhiệm vụ từ ID ${startFrom}. (Tin nhắn này sẽ tự xóa sau 5 giây)`);
-          setTimeout(() => replyMsg.delete().catch(() => {}), 5000);
-        }
+        sendPrivateOrTempMessage(message.author, message.channel, `Đã reset danh sách nhiệm vụ từ ID ${startFrom}. Các nhiệm vụ cũ đã được lưu vào file backup.`);
         return;
       }
       
@@ -350,23 +387,14 @@ client.on('messageCreate', async (message) => {
       announcements.length = 0;
       fs.writeFileSync('announcements.json', '[]');
       
-      // Gửi thông báo qua DM thay vì reply công khai
-      try {
-        await message.author.send('Đã reset danh sách nhiệm vụ thành công! Các nhiệm vụ cũ đã được lưu vào file backup.');
-        if (message.guild.me.permissions.has(PermissionFlagsBits.ManageMessages)) {
-          await message.delete().catch(err => console.error('Không thể xóa tin nhắn lệnh:', err));
-        }
-      } catch (dmError) {
-        const replyMsg = await message.reply('Đã reset danh sách nhiệm vụ thành công! (Tin nhắn này sẽ tự xóa sau 5 giây)');
-        setTimeout(() => replyMsg.delete().catch(() => {}), 5000);
-      }
+      sendPrivateOrTempMessage(message.author, message.channel, 'Đã reset danh sách nhiệm vụ thành công! Các nhiệm vụ cũ đã được lưu vào file backup.');
     } catch (error) {
       console.error('Lỗi khi reset nhiệm vụ:', error);
-      message.reply('Có lỗi xảy ra khi reset nhiệm vụ!');
+      sendPrivateOrTempMessage(message.author, message.channel, 'Có lỗi xảy ra khi reset nhiệm vụ!');
     }
   }
 
-  // Thêm lệnh để xem trợ giúp về các lệnh
+  // === LỆNH HELP ===
   if (command === 'help') {
     const helpMessage = `
 **Hướng dẫn sử dụng bot:**
