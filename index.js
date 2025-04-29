@@ -428,21 +428,36 @@ client.on('messageCreate', async (message) => {
       }
     }
 
-    // ===== LỆNH HELP =====
-    if (command === 'help') {
-      // Xóa tin nhắn lệnh ngay lập tức
-      await deleteCommandMessage(message);
-      
-      const helpMessage = `
-**Hướng dẫn sử dụng bot:**
+   // ===== LỆNH HELP =====
+if (command === 'help') {
+  // Xóa tin nhắn lệnh ngay lập tức
+  await deleteCommandMessage(message);
+  
+  const helpMessage = `
+**📚 HƯỚNG DẪN SỬ DỤNG BOT**
+
+**📋 Lệnh cơ bản:**
 \`!hello\` - Kiểm tra bot có hoạt động không
-\`!thongbao NV12: Nội dung nhiệm vụ. @người_nhận1 @người_nhận2 YYYY-MM-DD HH:MM điểm\` - Tạo thông báo nhiệm vụ (chỉ dành cho Admin)
-\`!baocao ID_nhiệm_vụ nội_dung_báo_cáo\` - Gửi báo cáo hoàn thành nhiệm vụ
-\`!duyet ID_báo_cáo\` - Duyệt báo cáo (chỉ dành cho Admin)
-\`!tuchoi ID_báo_cáo\` - Từ chối báo cáo (chỉ dành cho Admin)
+\`!help\` - Hiển thị hướng dẫn sử dụng bot
 \`!diem\` - Xem số điểm hiện có của bạn
-\`!resetnv\` - Reset danh sách nhiệm vụ (chỉ dành cho Admin)
-\`!resetnv from 10\` - Reset danh sách nhiệm vụ từ ID 10 trở đi (chỉ dành cho Admin)
+
+**📢 Lệnh quản lý nhiệm vụ:**
+\`!thongbao NV12: Nội dung nhiệm vụ. @người_nhận1 @người_nhận2 YYYY-MM-DD HH:MM điểm\` - Tạo thông báo nhiệm vụ (Admin)
+\`!baocao ID_nhiệm_vụ nội_dung_báo_cáo\` - Gửi báo cáo hoàn thành nhiệm vụ
+\`!duyet ID_báo_cáo\` - Duyệt báo cáo (Admin)
+\`!tuchoi ID_báo_cáo\` - Từ chối báo cáo (Admin)
+\`!resetnv\` - Reset danh sách nhiệm vụ (Admin)
+\`!resetnv from 10\` - Reset danh sách nhiệm vụ từ ID 10 trở đi (Admin)
+
+**🏆 Lệnh quản lý điểm:**
+\`!bangdiem\` - Hiển thị bảng điểm của các role (Cần vai trò được phép)
+\`!diemdanh @người_dùng số_điểm\` - Cập nhật/cộng thêm điểm cho người dùng (Admin)
+\`!suadiem @người_dùng số_điểm\` - Sửa điểm của người dùng thành giá trị mới (Admin)
+
+**ℹ️ Chú thích:**
+- Lệnh có ghi chú (Admin) chỉ có thể được sử dụng bởi người có vai trò 【Chủ tịch】 hoặc Admin.
+- Lệnh "Cần vai trò được phép" có thể được sử dụng bởi người có vai trò 【Chủ tịch】, ┠Phó chủ tịch┤, hoặc ┠Ban điều hành ┤.
+- Khi nhập lệnh, không cần thêm các ký tự như [ ] hoặc < >.
 `;
       // Gửi tin nhắn mới thay vì trả lời tin nhắn cũ
       await message.channel.send(helpMessage);
