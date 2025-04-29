@@ -447,6 +447,162 @@ client.on('messageCreate', async (message) => {
       // Gửi tin nhắn mới thay vì trả lời tin nhắn cũ
       await message.channel.send(helpMessage);
     }
+    // ===== LỆNH BANGDIEM =====
+if (command === 'bangdiem') {
+  // Xóa tin nhắn lệnh ngay lập tức
+  await deleteCommandMessage(message);
+  
+  // Kiểm tra quyền sử dụng lệnh
+  if (!hasAllowedRole(message.member)) {
+    return sendPrivateOrTempMessage(message.author, message.channel, 'Bạn không có quyền sử dụng lệnh này! Cần có vai trò được phép.');
+  }
+  
+  try {
+    // Tạo bảng điểm theo role
+    const roleScores = {};
+    const guild = message.guild;
+    
+    // Lấy danh sách người dùng có điểm
+    const userIds = Object.keys(points);
+    
+    // Lặp qua từng người dùng có điểm
+    for (const userId of userIds) {
+      // Tìm thành viên trong server
+      const member = await guild.members.fetch(userId).catch(() => null);
+      
+      if (member) {
+        // Lấy role cao nhất của thành viên
+        const highestRole = member.roles.highest;
+        
+        // Thêm điểm của thành viên vào role tương ứng
+        if (!roleScores[highestRole.id]) {
+          roleScores[highestRole.id] = {
+            name: highestRole.name,
+            totalPoints: 0,
+            members: []
+          };
+        }
+        
+        roleScores[highestRole.id].totalPoints += (points[userId] || 0);
+        roleScores[highestRole.id].members.push({
+          id: userId,
+          tag: member.user.tag,
+          points: points[userId] || 0
+        });
+      }
+    }
+    
+    // Sắp xếp các role theo tổng điểm giảm dần
+    const sortedRoles = Object.values(roleScores).sort((a, b) => b.totalPoints - a.totalPoints);
+    
+    // Tạo tin nhắn hiển thị bảng điểm
+    let bangdiemMessage = '**Bảng Điểm Theo Role**\n\n';
+    
+    if (sortedRoles.length === 0) {
+      bangdiemMessage += 'Hiện chưa có dữ liệu điểm.';
+    } else {
+      sortedRoles.forEach((role, index) => {
+        bangdiemMessage += `**${index + 1}. ${role.name}** - ${role.totalPoints} điểm\n`;
+        
+        // Sắp xếp thành viên theo điểm giảm dần
+        const sortedMembers = role.members.sort((a, b) => b.points - a.points);
+        
+        sortedMembers.forEach((member, memberIndex) => {
+          bangdiemMessage += `   ${memberIndex + 1}. <@${member.id}> - ${member.points} điểm\n`;
+        });
+        
+        bangdiemMessage += '\n';
+      });
+    }
+    
+    // Gửi tin nhắn bảng điểm
+    await message.channel.send(bangdiemMessage);
+  } catch (error) {
+    console.error('Lỗi khi hiển thị bảng điểm:', error);
+    sendPrivateOrTempMessage(message.author, message.channel, 'Đã xảy ra lỗi khi tạo bảng điểm. Vui lòng thử lại sau.');
+  }
+}
+
+// ===== LỆNH DIEMDANH =====
+if (command === 'diemdanh') {
+  // Xóa tin nhắn lệnh ngay lập tức
+  await deleteCommandMessage(message);
+  
+  // Kiểm tra quyền admin
+  if (!hasAdminRole(message.member)) {
+    return sendPrivateOrTempMessage(message.author, message.channel, 'Bạn không có quyền sử dụng lệnh này! Cần có vai trò Admin.');
+  }
+  
+  // Kiểm tra cú pháp
+  if (args.length < 2 || !args[0].match(/^<@!?(\d+)>$/) || isNaN(parseInt(args[1]))) {
+    return sendPrivateOrTempMessage(message.author, message.channel, 'Vui lòng nhập đúng cú pháp! Ví dụ: !diemdanh @username 50');
+  }
+  
+  // Lấy ID người dùng từ mention
+  const userId = args[0].match(/^<@!?(\d+)>$/)[1];
+  // Lấy số điểm cần cập nhật
+  const pointsToAdd = parseInt(args[1]);
+  
+  // Kiểm tra người dùng có tồn tại không
+  const member = await message.guild.members.fetch(userId).catch(() => null);
+  if (!member) {
+    return sendPrivateOrTempMessage(message.author, message.channel, 'Người dùng không tồn tại trong server!');
+  }
+  
+  try {
+    // Cập nhật điểm cho người dùng
+    points[userId] = (points[userId] || 0) + pointsToAdd;
+    fs.writeFileSync('points.json', JSON.stringify(points));
+    
+    // Thông báo đã cập nhật điểm thành công
+    await message.channel.send(`Đã cập nhật ${pointsToAdd} điểm cho <@${userId}>. Tổng điểm hiện tại: ${points[userId]}.`);
+  } catch (error) {
+    console.error('Lỗi khi cập nhật điểm:', error);
+    sendPrivateOrTempMessage(message.author, message.channel, 'Đã xảy ra lỗi khi cập nhật điểm. Vui lòng thử lại sau.');
+  }
+}
+
+// ===== LỆNH SUADIEM =====
+if (command === 'suadiem') {
+  // Xóa tin nhắn lệnh ngay lập tức
+  await deleteCommandMessage(message);
+  
+  // Kiểm tra quyền admin
+  if (!hasAdminRole(message.member)) {
+    return sendPrivateOrTempMessage(message.author, message.channel, 'Bạn không có quyền sử dụng lệnh này! Cần có vai trò Admin.');
+  }
+  
+  // Kiểm tra cú pháp
+  if (args.length < 2 || !args[0].match(/^<@!?(\d+)>$/) || isNaN(parseInt(args[1]))) {
+    return sendPrivateOrTempMessage(message.author, message.channel, 'Vui lòng nhập đúng cú pháp! Ví dụ: !suadiem @username 100');
+  }
+  
+  // Lấy ID người dùng từ mention
+  const userId = args[0].match(/^<@!?(\d+)>$/)[1];
+  // Lấy số điểm mới
+  const newPoints = parseInt(args[1]);
+  
+  // Kiểm tra người dùng có tồn tại không
+  const member = await message.guild.members.fetch(userId).catch(() => null);
+  if (!member) {
+    return sendPrivateOrTempMessage(message.author, message.channel, 'Người dùng không tồn tại trong server!');
+  }
+  
+  try {
+    // Lưu điểm cũ để thông báo
+    const oldPoints = points[userId] || 0;
+    
+    // Cập nhật điểm mới cho người dùng
+    points[userId] = newPoints;
+    fs.writeFileSync('points.json', JSON.stringify(points));
+    
+    // Thông báo đã sửa điểm thành công
+    await message.channel.send(`Đã sửa điểm của <@${userId}> từ ${oldPoints} thành ${newPoints}.`);
+  } catch (error) {
+    console.error('Lỗi khi sửa điểm:', error);
+    sendPrivateOrTempMessage(message.author, message.channel, 'Đã xảy ra lỗi khi sửa điểm. Vui lòng thử lại sau.');
+  }
+}
   } catch (error) {
     console.error('Lỗi khi xử lý lệnh:', error);
     try {
