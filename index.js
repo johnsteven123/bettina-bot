@@ -257,15 +257,17 @@ const announcementMessage = `${formattedTaskNumber}\n${content}\nSố điểm: $
     mentionText += `Role nhận: ${roleIds.map(id => `<@&${id}>`).join(', ')}`;
   }
 
-  const announcementMessage = `${formattedTaskNumber}\n${content}\nSố điểm: ${points}\n${mentionText}\nDeadline: ${deadline}`;
-  
-  try {
-    await announcementChannel.send(announcementMessage);
-    sendPrivateOrTempMessage(message.author, message.channel, 'Thông báo đã được gửi thành công!');
-  } catch (error) {
-    console.error('Lỗi khi gửi thông báo:', error);
-    sendPrivateOrTempMessage(message.author, message.channel, 'Có lỗi khi gửi thông báo vào kênh! Vui lòng kiểm tra quyền của bot.');
-  }
+  // Khai báo announcementMessage một lần duy nhất
+const announcementMessage = `${formattedTaskNumber}\n${content}\nSố điểm: ${points}\n${mentionText}\nDeadline: ${deadline}\n**Tình trạng**: Chưa có người nhận`;
+
+// Xóa dòng khai báo thứ hai, chỉ giữ lại phần gửi tin nhắn
+try {
+  await announcementChannel.send(announcementMessage);
+  sendPrivateOrTempMessage(message.author, message.channel, 'Thông báo đã được gửi thành công!');
+} catch (error) {
+  console.error('Lỗi khi gửi thông báo:', error);
+  sendPrivateOrTempMessage(message.author, message.channel, 'Có lỗi khi gửi thông báo vào kênh! Vui lòng kiểm tra quyền của bot.');
+}
 }
    // ===== LỆNH BAOCAO =====
 if (command === 'baocao') {
