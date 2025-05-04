@@ -10,7 +10,7 @@ const REPORT_CHANNEL_ID = process.env.REPORT_CHANNEL_ID || '1360306086338625749'
 
 // Tên của các role có quyền quản trị
 const ADMIN_ROLE_NAME = process.env.ADMIN_ROLE_NAME || '【Chủ tịch】';
-// Tên các role có quyền sử dụng lệnh báo cáo
+// Tên các role có quyền sử dụng lệnh báo cáo và nhận nhiệm vụ
 const ALLOWED_ROLE_NAMES = ['┠Phó chủ tịch┤', '┠Ban điều hành ┤']; // Điều chỉnh theo nhu cầu
 
 // ===== Khởi tạo client trước khi sử dụng =====
@@ -66,7 +66,7 @@ client.on('ready', () => {
 
 // ===== CÁC HÀM TIỆN ÍCH =====
 
-// Hàm kiểm tra các kênh có tồn tại không
+// Hàm kiểm tra các kênh có tồn tại WELL-DOCUMENTED CODE không
 function checkChannels() {
   client.guilds.cache.forEach(guild => {
     const announceChannel = guild.channels.cache.get(ANNOUNCEMENT_CHANNEL_ID);
@@ -494,19 +494,24 @@ client.on('messageCreate', async (message) => {
       
       const helpMessage = `
 **Hướng dẫn sử dụng bot:**
+
+**Lệnh chung:**
 \`!help\` - Hiển thị danh sách các lệnh hỗ trợ
 \`!hello\` - Kiểm tra bot có hoạt động không
+\`!diem\` - Xem số điểm hiện có của bạn
+\`!bangdiem\` - Xem bảng điểm theo role (dành cho Phó chủ tịch, Ban điều hành hoặc Admin)
+
+**Lệnh nhiệm vụ:**
 \`!thongbao NV12: Nội dung nhiệm vụ. @người_nhận1 @role1 YYYY-MM-DD HH:MM điểm\` - Tạo thông báo nhiệm vụ (chỉ dành cho Admin)
 \`!nhannhiemvu ID_nhiệm_vụ\` - Nhận nhiệm vụ được giao cho role của bạn (dành cho Phó chủ tịch và Ban điều hành)
-\`!baocao ID_nhiệm_vụ nội_dung_báo_cáo\` - Gửi báo cáo hoàn thành nhiệm vụ
+\`!baocao ID_nhiệm_vụ nội_dung_báo_cáo\` - Gửi báo cáo hoàn thành nhiệm vụ (dành cho người nhận nhiệm vụ)
 \`!duyet ID_báo_cáo\` - Duyệt báo cáo (chỉ dành cho Admin)
 \`!tuchoi ID_báo_cáo\` - Từ chối báo cáo (chỉ dành cho Admin)
-\`!diem\` - Xem số điểm hiện có của bạn
-\`!resetnv\` - Reset danh sách nhiệm vụ (chỉ dành cho Admin)
-\`!resetnv from 10\` - Reset danh sách nhiệm vụ từ ID 10 trở đi (chỉ dành cho Admin)
-\`!bangdiem\` - Xem bảng điểm theo role
-\`!diemdanh @người_dùng điểm\` - Cộng điểm cho người dùng (chỉ dành cho Admin)
-\`!suadiem @người_dùng điểm\` - Sửa điểm của người dùng (chỉ dành cho Admin)
+
+**Lệnh quản lý (Admin):**
+\`!diemdanh @người_dùng điểm\` - Cộng điểm cho người dùng
+\`!suadiem @người_dùng điểm\` - Sửa điểm của người dùng
+\`!resetnv [from ID]\` - Reset danh sách nhiệm vụ, tùy chọn "from ID" để reset từ ID cụ thể trở đi
 `;
       // Gửi tin nhắn mới thay vì trả lời tin nhắn cũ
       await message.channel.send(helpMessage);
