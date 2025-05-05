@@ -264,7 +264,7 @@ client.on('messageCreate', async (message) => {
       }
 
       // Khai báo announcementMessage một lần duy nhất
-      const announcementMessage = `${formattedTaskNumber}\n${content}\nSố điểm: ${points}\n${mentionText}${statusLine}`;
+      const announcementMessage = `${formattedTaskNumber}\n${content}\nSố điểm: ${points}\n${mentionText}\nDeadline: ${deadline}${statusLine}`;
 
       // Gửi tin nhắn và lưu ID tin nhắn
       try {
@@ -521,6 +521,12 @@ client.on('messageCreate', async (message) => {
 \`!diemdanh @người_dùng điểm\` - Cộng điểm cho người dùng
 \`!suadiem @người_dùng điểm\` - Sửa điểm của người dùng
 \`!resetnv [from ID]\` - Reset danh sách nhiệm vụ, tùy chọn "from ID" để reset từ ID cụ thể trở đi
+
+**Cơ chế tự động:**
+- Nếu nhiệm vụ giao cho **một người cụ thể** và trễ deadline mà chưa báo cáo, hệ thống sẽ tự động trừ điểm của người đó (số điểm trừ = điểm nhiệm vụ).
+- Nếu nhiệm vụ giao cho **bất kỳ ai** (chỉ định role mà không có người cụ thể):
+  - Nếu chưa có người nhận và trễ deadline, hệ thống sẽ trừ điểm tất cả thành viên trong role **┠Phó chủ tịch┤** và **┠Ban điều hành ┤** (số điểm trừ = điểm nhiệm vụ).
+  - Nếu đã có người nhận và trễ deadline mà chưa báo cáo, chỉ người nhận nhiệm vụ bị trừ điểm.
 `;
       // Gửi tin nhắn mới thay vì trả lời tin nhắn cũ
       await message.channel.send(helpMessage);
@@ -830,12 +836,11 @@ function checkDeadlines() {
         const announcementChannel = guild.channels.cache.get(ANNOUNCEMENT_CHANNEL_ID) || 
                                    guild.channels.cache.find(ch => ch.name === 'thong-bao');
         
-        // Xử lý trừ điểm cho từng người dùng cụ thể
+        // Trường hợp 1: Nhiệm vụ được giao cho user cụ thể
         if (announcement.receivers && announcement.receivers.length > 0) {
-          // Lọc ra các người dùng không phải từ role (những người được tag trực tiếp)
+          // Lọc ra các user cụ thể (không bao gồm những user thuộc role để tránh trừ điểm 2 lần)
           let directUsers = [...announcement.receivers];
           
-          // Nếu có roleReceivers, loại bỏ các user thuộc các role này để tránh trừ điểm 2 lần
           if (announcement.roleReceivers && announcement.roleReceivers.length > 0) {
             const roleMembers = [];
             for (const roleId of announcement.roleReceivers) {
@@ -844,24 +849,21 @@ function checkDeadlines() {
                 roleMembers.push(...role.members.map(member => member.id));
               }
             }
-            // Loại bỏ các user đã thuộc role để tránh trừ 2 lần
+            // Loại bỏ các user đã thuộc role
             directUsers = directUsers.filter(userId => !roleMembers.includes(userId));
           }
           
-          // Trừ điểm cho từng người dùng cụ thể
+          // Trừ điểm cho từng user cụ thể
           for (const userId of directUsers) {
-            if (points[userId]) {
-              points[userId] = Math.max(0, points[userId] - announcement.points);
-            } else {
-              points[userId] = 0;
-            }
+            const oldPoints = points[userId] || 0;
+            points[userId] = Math.max(0, oldPoints - announcement.points);
             
             // Thông báo trừ điểm
             if (announcementChannel) {
               try {
                 await announcementChannel.send(
                   `**CẢNH BÁO:** Nhiệm vụ NV${announcement.id.toString().padStart(3, '0')} đã quá hạn mà không có báo cáo!\n` +
-                  `<@${userId}> đã bị trừ ${announcement.points} điểm!`
+                  `<@${userId}> đã bị trừ ${announcement.points} điểm! (Điểm còn lại: ${points[userId]})`
                 );
               } catch (error) {
                 console.error('Lỗi khi gửi thông báo trừ điểm cá nhân:', error);
@@ -870,36 +872,54 @@ function checkDeadlines() {
           }
         }
         
-        // Xử lý trừ điểm khi trễ deadline cho các role
-        if (announcement.roleReceivers && announcement.roleReceivers.length > 0) {
-          // Lấy thông tin mỗi role được giao
-          for (const roleId of announcement.roleReceivers) {
-            const role = guild.roles.cache.get(roleId);
-            if (role) {
-              // Thông báo vào kênh thông báo về việc trễ deadline
+        // Trường hợp 2: Nhiệm vụ giao cho "bất kỳ ai" (chỉ có roleReceivers, không có receivers cụ thể)
+        if (announcement.receivers.length === 0 && announcement.roleReceivers && announcement.roleReceivers.length > 0) {
+          // Nếu đã có người nhận nhiệm vụ
+          if (announcement.acceptedBy) {
+            const userId = announcement.acceptedBy;
+            const oldPoints = points[userId] || 0;
+            points[userId] = Math.max(0, oldPoints - announcement.points);
+            
+            // Thông báo trừ điểm
+            if (announcementChannel) {
+              try {
+                await announcementChannel.send(
+                  `**CẢNH BÁO:** Nhiệm vụ NV${announcement.id.toString().padStart(3, '0')} đã quá hạn mà không có báo cáo!\n` +
+                  `Người nhận <@${userId}> đã bị trừ ${announcement.points} điểm! (Điểm còn lại: ${points[userId]})`
+                );
+              } catch (error) {
+                console.error('Lỗi khi gửi thông báo trừ điểm cho người nhận:', error);
+              }
+            }
+          } else {
+            // Nếu chưa có người nhận, trừ điểm tất cả thành viên trong cả 2 role ┠Phó chủ tịch┤ và ┠Ban điều hành ┤
+            const targetRoleNames = ['┠Phó chủ tịch┤', '┠Ban điều hành ┤'];
+            const roleMembers = new Set();
+            
+            for (const roleName of targetRoleNames) {
+              const role = guild.roles.cache.find(r => r.name === roleName);
+              if (role) {
+                role.members.forEach(member => roleMembers.add(member.id));
+              }
+            }
+            
+            // Trừ điểm cho từng thành viên trong các role
+            roleMembers.forEach(userId => {
+              const oldPoints = points[userId] || 0;
+              points[userId] = Math.max(0, oldPoints - announcement.points);
+              
+              // Thông báo trừ điểm
               if (announcementChannel) {
                 try {
                   await announcementChannel.send(
-                    `**CẢNH BÁO:** Nhiệm vụ NV${announcement.id.toString().padStart(3, '0')} đã quá hạn mà không có báo cáo!\n` +
-                    `Role <@&${roleId}> đã bị trừ ${announcement.points} điểm!`
+                    `**CẢNH BÁO:** Nhiệm vụ NV${announcement.id.toString().padStart(3, '0')} đã quá hạn mà không có người nhận hoặc báo cáo!\n` +
+                    `<@${userId}> (thuộc role ${targetRoleNames.join(', ')}) đã bị trừ ${announcement.points} điểm! (Điểm còn lại: ${points[userId]})`
                   );
                 } catch (error) {
                   console.error('Lỗi khi gửi thông báo trừ điểm role:', error);
                 }
               }
-              
-              // Trừ điểm cho từng thành viên trong role
-              role.members.forEach(member => {
-                const userId = member.id;
-                
-                // Trừ điểm, nhưng không để điểm âm
-                if (points[userId]) {
-                  points[userId] = Math.max(0, points[userId] - announcement.points);
-                } else {
-                  points[userId] = 0;
-                }
-              });
-            }
+            });
           }
         }
       });
@@ -916,5 +936,5 @@ function checkDeadlines() {
   }
 }
 
-// ===== CHẠY KIỂM TRA DEADLINE THEO ĐỊNH KỲ (MỖI 1 GIỜ) =====
-setInterval(checkDeadlines, 60 * 60 * 1000);
+// ===== CHẠY KIỂM TRA DEADLINE THEO ĐỊNH KỲ (MỖI 1 PHÚT) =====
+setInterval(checkDeadlines, 60 * 1000);
