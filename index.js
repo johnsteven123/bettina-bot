@@ -66,7 +66,7 @@ client.on('ready', () => {
 
 // ===== CÁC HÀM TIỆN ÍCH =====
 
-// Hàm kiểm tra các kênh có tồn tại WELL-DOCUMENTED CODE không
+// Hàm kiểm tra các kênh có tồn tại không
 function checkChannels() {
   client.guilds.cache.forEach(guild => {
     const announceChannel = guild.channels.cache.get(ANNOUNCEMENT_CHANNEL_ID);
@@ -180,9 +180,9 @@ client.on('messageCreate', async (message) => {
       // Lấy ID của các role được tag
       const roleIds = roleTags.map(tag => tag.match(/^<@&(\d+)>$/)[1]);
       
-      const contentWithTitle = args.slice(0, args.findIndex(arg => arg.match(/^<@[!&]?(\d+)>$/))).join(' ');
+      const contentWithTitle = args.slice(0, args.findIndex(arg => arg.match(/^<@[!&]?(\d+)>$/)) || args.length).join(' ');
       
-      if (!contentWithTitle || (receiverTags.length === 0 && roleTags.length === 0) || !deadline || isNaN(points) || !/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(deadline)) {
+      if (!contentWithTitle || !deadline || isNaN(points) || !/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(deadline)) {
         return sendPrivateOrTempMessage(message.author, message.channel, 'Vui lòng nhập đúng cú pháp! Ví dụ: !thongbao NV12: Nội dung nhiệm vụ. @username1 @role1 2023-10-25 14:00 50');
       }
 
@@ -236,6 +236,7 @@ client.on('messageCreate', async (message) => {
         roleReceivers: roleIds, // Lưu ID của các role được giao nhiệm vụ
         deadline: new Date(deadline).getTime(),
         created: Date.now(), // Thêm thời gian tạo để theo dõi
+        messageId: null, // Thêm field để lưu ID tin nhắn thông báo
       };
 
       try {
@@ -255,12 +256,21 @@ client.on('messageCreate', async (message) => {
         mentionText += `Role nhận: ${roleIds.map(id => `<@&${id}>`).join(', ')}`;
       }
 
-      // Khai báo announcementMessage một lần duy nhất
-      const announcementMessage = `${formattedTaskNumber}\n${content}\nSố điểm: ${points}\n${mentionText}\nDeadline: ${deadline}\n**Tình trạng**: Chưa có người nhận`;
+      // Xác định có hiển thị dòng tình trạng không
+      let statusLine = '';
+      if (receiverIds.length === 0 && roleIds.length > 0) {
+        // Nếu chỉ có role mà không có user cụ thể, hiển thị dòng tình trạng
+        statusLine = '\n**Tình trạng**: Chưa có người nhận';
+      }
 
-      // Gửi tin nhắn
+      // Khai báo announcementMessage một lần duy nhất
+      const announcementMessage = `${formattedTaskNumber}\n${content}\nSố điểm: ${points}\n${mentionText}${statusLine}`;
+
+      // Gửi tin nhắn và lưu ID tin nhắn
       try {
-        await announcementChannel.send(announcementMessage);
+        const sentMessage = await announcementChannel.send(announcementMessage);
+        announcement.messageId = sentMessage.id; // Lưu ID tin nhắn
+        fs.writeFileSync('announcements.json', JSON.stringify(announcements)); // Cập nhật file với messageId
         sendPrivateOrTempMessage(message.author, message.channel, 'Thông báo đã được gửi thành công!');
       } catch (error) {
         console.error('Lỗi khi gửi thông báo:', error);
@@ -305,7 +315,6 @@ client.on('messageCreate', async (message) => {
         }
       } else {
         // Nếu chưa có người nhận, kiểm tra xem người báo cáo có quyền không
-        // Kiểm tra user có thuộc role được giao nhiệm vụ không
         const isDirectReceiver = announcement.receivers.includes(message.author.id);
         const isRoleReceiver = announcement.roleReceivers && announcement.roleReceivers.some(roleId => 
           message.member.roles.cache.has(roleId)
@@ -733,17 +742,25 @@ client.on('messageCreate', async (message) => {
         return sendPrivateOrTempMessage(message.author, message.channel, 'Có lỗi xảy ra, không thể nhận nhiệm vụ!');
       }
 
-      // Thông báo trong kênh thông báo
+      // Cập nhật thông báo gốc trong kênh thông báo
       const announcementChannel = message.guild.channels.cache.get(ANNOUNCEMENT_CHANNEL_ID) || 
                                  message.guild.channels.cache.find(ch => ch.name === 'thong-bao');
+      if (announcementChannel && announcement.messageId) {
+        try {
+          const messageToEdit = await announcementChannel.messages.fetch(announcement.messageId);
+          const formattedTaskNumber = `NV${announcementId.toString().padStart(3, '0')}`;
+          const newContent = `${formattedTaskNumber}\n${announcement.content}\nSố điểm: ${announcement.points}\n${announcement.receivers.length > 0 ? `Người nhận: ${announcement.receivers.map(id => `<@${id}>`).join(', ')}\n` : ''}${announcement.roleReceivers.length > 0 ? `Role nhận: ${announcement.roleReceivers.map(id => `<@&${id}>`).join(', ')}\n` : ''}Deadline: ${new Date(announcement.deadline).toLocaleString('vi-VN', { dateStyle: 'short', timeStyle: 'short' })}\n**Tình trạng**: Đã có người nhận - <@${announcement.acceptedBy}>`;
+          await messageToEdit.edit(newContent);
+        } catch (error) {
+          console.error('Lỗi khi chỉnh sửa thông báo gốc:', error);
+        }
+      }
       
-      // Định dạng lại mã nhiệm vụ cho đẹp
-      const formattedTaskNumber = `NV${announcementId.toString().padStart(3, '0')}`;
-      
+      // Thông báo trong kênh thông báo
       if (announcementChannel) {
         try {
           await announcementChannel.send(
-            `🔔 **THÔNG BÁO:** <@${message.author.id}> đã nhận nhiệm vụ ${formattedTaskNumber}.\n` +
+            `🔔 **THÔNG BÁO:** <@${message.author.id}> đã nhận nhiệm vụ NV${announcementId.toString().padStart(3, '0')}.\n` +
             `Nhiệm vụ phải hoàn thành trước ${new Date(announcement.deadline).toLocaleString('vi-VN')}.`
           );
         } catch (error) {
@@ -752,7 +769,7 @@ client.on('messageCreate', async (message) => {
       }
       
       // Trả lời người dùng
-      await message.channel.send(`✅ <@${message.author.id}>, bạn đã nhận nhiệm vụ ${formattedTaskNumber} thành công! Hãy hoàn thành trước thời hạn.`);
+      await message.channel.send(`✅ <@${message.author.id}>, bạn đã nhận nhiệm vụ NV${announcementId.toString().padStart(3, '0')} thành công! Hãy hoàn thành trước thời hạn.`);
     }
 
   } catch (error) {
