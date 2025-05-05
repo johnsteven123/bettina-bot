@@ -799,7 +799,7 @@ client.login(process.env.TOKEN)
   .catch(err => console.error('Lỗi khi đăng nhập bot:', err));
 
 // ===== KIỂM TRA DEADLINE THEO ĐỊNH KỲ =====
-function checkDeadlines() {
+async function checkDeadlines() {
   try {
     // Load dữ liệu mới nhất
     const announcementsData = fs.readFileSync('announcements.json', 'utf-8');
@@ -832,7 +832,7 @@ function checkDeadlines() {
       // Đánh dấu thông báo đã được xử lý
       announcement.isExpired = true;
       
-      client.guilds.cache.forEach(async guild => {
+      for (const guild of client.guilds.cache.values()) {
         const announcementChannel = guild.channels.cache.get(ANNOUNCEMENT_CHANNEL_ID) || 
                                    guild.channels.cache.find(ch => ch.name === 'thong-bao');
         
@@ -860,14 +860,10 @@ function checkDeadlines() {
             
             // Thông báo trừ điểm
             if (announcementChannel) {
-              try {
-                await announcementChannel.send(
-                  `**CẢNH BÁO:** Nhiệm vụ NV${announcement.id.toString().padStart(3, '0')} đã quá hạn mà không có báo cáo!\n` +
-                  `<@${userId}> đã bị trừ ${announcement.points} điểm! (Điểm còn lại: ${points[userId]})`
-                );
-              } catch (error) {
-                console.error('Lỗi khi gửi thông báo trừ điểm cá nhân:', error);
-              }
+              await announcementChannel.send(
+                `**CẢNH BÁO:** Nhiệm vụ NV${announcement.id.toString().padStart(3, '0')} đã quá hạn mà không có báo cáo!\n` +
+                `<@${userId}> đã bị trừ ${announcement.points} điểm! (Điểm còn lại: ${points[userId]})`
+              ).catch(err => console.error('Lỗi gửi thông báo trừ điểm cá nhân:', err));
             }
           }
         }
@@ -882,14 +878,10 @@ function checkDeadlines() {
             
             // Thông báo trừ điểm
             if (announcementChannel) {
-              try {
-                await announcementChannel.send(
-                  `**CẢNH BÁO:** Nhiệm vụ NV${announcement.id.toString().padStart(3, '0')} đã quá hạn mà không có báo cáo!\n` +
-                  `Người nhận <@${userId}> đã bị trừ ${announcement.points} điểm! (Điểm còn lại: ${points[userId]})`
-                );
-              } catch (error) {
-                console.error('Lỗi khi gửi thông báo trừ điểm cho người nhận:', error);
-              }
+              await announcementChannel.send(
+                `**CẢNH BÁO:** Nhiệm vụ NV${announcement.id.toString().padStart(3, '0')} đã quá hạn mà không có báo cáo!\n` +
+                `Người nhận <@${userId}> đã bị trừ ${announcement.points} điểm! (Điểm còn lại: ${points[userId]})`
+              ).catch(err => console.error('Lỗi gửi thông báo trừ điểm cho người nhận:', err));
             }
           } else {
             // Nếu chưa có người nhận, trừ điểm tất cả thành viên trong cả 2 role ┠Phó chủ tịch┤ và ┠Ban điều hành ┤
@@ -904,25 +896,21 @@ function checkDeadlines() {
             }
             
             // Trừ điểm cho từng thành viên trong các role
-            roleMembers.forEach(userId => {
+            for (const userId of roleMembers) {
               const oldPoints = points[userId] || 0;
               points[userId] = Math.max(0, oldPoints - announcement.points);
               
               // Thông báo trừ điểm
               if (announcementChannel) {
-                try {
-                  await announcementChannel.send(
-                    `**CẢNH BÁO:** Nhiệm vụ NV${announcement.id.toString().padStart(3, '0')} đã quá hạn mà không có người nhận hoặc báo cáo!\n` +
-                    `<@${userId}> (thuộc role ${targetRoleNames.join(', ')}) đã bị trừ ${announcement.points} điểm! (Điểm còn lại: ${points[userId]})`
-                  );
-                } catch (error) {
-                  console.error('Lỗi khi gửi thông báo trừ điểm role:', error);
-                }
+                await announcementChannel.send(
+                  `**CẢNH BÁO:** Nhiệm vụ NV${announcement.id.toString().padStart(3, '0')} đã quá hạn mà không có người nhận hoặc báo cáo!\n` +
+                  `<@${userId}> (thuộc role ${targetRoleNames.join(', ')}) đã bị trừ ${announcement.points} điểm! (Điểm còn lại: ${points[userId]})`
+                ).catch(err => console.error('Lỗi gửi thông báo trừ điểm role:', err));
               }
-            });
+            }
           }
         }
-      });
+      }
     }
     
     // Lưu lại dữ liệu sau khi xử lý
