@@ -78,10 +78,20 @@ function checkChannels() {
     
     if (!announceChannel) {
       console.warn(`⚠️ Không tìm thấy kênh thông báo với ID ${ANNOUNCEMENT_CHANNEL_ID} trong server ${guild.name}`);
+    } else {
+      const botMember = guild.members.cache.get(client.user.id);
+      if (!botMember.permissionsIn(announceChannel).has(PermissionFlagsBits.SendMessages)) {
+        console.warn(`⚠️ Bot không có quyền gửi tin nhắn trong kênh thông báo ${ANNOUNCEMENT_CHANNEL_ID}`);
+      }
     }
     
     if (!reportChannel) {
       console.warn(`⚠️ Không tìm thấy kênh báo cáo với ID ${REPORT_CHANNEL_ID} trong server ${guild.name}`);
+    } else {
+      const botMember = guild.members.cache.get(client.user.id);
+      if (!botMember.permissionsIn(reportChannel).has(PermissionFlagsBits.SendMessages)) {
+        console.warn(`⚠️ Bot không có quyền gửi tin nhắn trong kênh báo cáo ${REPORT_CHANNEL_ID}`);
+      }
     }
   });
 }
@@ -253,7 +263,7 @@ client.on('messageCreate', async (message) => {
 
       // Tạo thông báo với mentions
       let mentionText = '';
-      // Nếu không có người nhận cụ thể, hiển thị "Người nhận: Bất kỳ"
+      // Nếu không có người nhận cụ thể, hiển thị "Người nhận: Bất kỳ" ngay cả khi có role
       if (receiverIds.length === 0) {
         mentionText += `Người nhận: Bất kỳ`;
       } else {
@@ -827,6 +837,8 @@ async function checkDeadlines() {
     const pointsData = fs.readFileSync('points.json', 'utf-8');
 
     console.log('Loaded announcements:', announcementsData);
+    console.log('Loaded reports:', reportsData);
+    console.log('Loaded points:', pointsData);
 
     if (announcementsData) announcements.length = 0;
     if (announcementsData) announcements.push(...JSON.parse(announcementsData));
@@ -838,7 +850,7 @@ async function checkDeadlines() {
     
     // Lọc ra các thông báo đã quá deadline và chưa được xử lý
     const expiredAnnouncements = announcements.filter(announcement => {
-      console.log(`Checking announcement ${announcement.id}: Deadline ${announcement.deadline}, isProcessed: ${announcement.isProcessed}`);
+      console.log(`Checking announcement ${announcement.id}: Deadline ${announcement.deadline} (${new Date(announcement.deadline).toLocaleString('vi-VN')}), isProcessed: ${announcement.isProcessed}`);
       if (!announcement.isProcessed && announcement.deadline && now > announcement.deadline) {
         // Kiểm tra xem có báo cáo nào đang chờ duyệt hoặc đã được duyệt cho thông báo này không
         const hasReport = reports.some(report => 
@@ -867,6 +879,13 @@ async function checkDeadlines() {
           continue;
         }
         
+        // Kiểm tra quyền gửi tin nhắn trong kênh
+        const botMember = guild.members.cache.get(client.user.id);
+        if (!botMember.permissionsIn(announcementChannel).has(PermissionFlagsBits.SendMessages)) {
+          console.warn(`Bot lacks SendMessages permission in channel ${ANNOUNCEMENT_CHANNEL_ID}`);
+          continue;
+        }
+        
         // Trường hợp 1: Nhiệm vụ được giao cho user cụ thể
         if (announcement.receivers && announcement.receivers.length > 0) {
           // Lọc ra các user cụ thể (không bao gồm những user thuộc role để tránh trừ điểm 2 lần)
@@ -883,6 +902,8 @@ async function checkDeadlines() {
             // Loại bỏ các user đã thuộc role
             directUsers = directUsers.filter(userId => !roleMembers.includes(userId));
           }
+          
+          console.log(`Direct users to penalize for announcement ${announcement.id}:`, directUsers);
           
           // Trừ điểm cho từng user cụ thể
           for (const userId of directUsers) {
@@ -905,6 +926,8 @@ async function checkDeadlines() {
             const oldPoints = points[userId] || 0;
             points[userId] = Math.max(0, oldPoints - announcement.points);
             
+            console.log(`Penalizing accepted user ${userId} for announcement ${announcement.id}`);
+            
             // Thông báo trừ điểm
             await announcementChannel.send(
               `**CẢNH BÁO:** Nhiệm vụ NV${announcement.id.toString().padStart(3, '0')} đã quá hạn mà không có báo cáo!\n` +
@@ -919,8 +942,12 @@ async function checkDeadlines() {
               const role = guild.roles.cache.find(r => r.name === roleName);
               if (role) {
                 role.members.forEach(member => roleMembers.add(member.id));
+              } else {
+                console.warn(`Role ${roleName} not found in guild ${guild.name}`);
               }
             }
+            
+            console.log(`Role members to penalize for announcement ${announcement.id}:`, [...roleMembers]);
             
             // Trừ điểm cho từng thành viên trong các role
             for (const userId of roleMembers) {
