@@ -237,6 +237,7 @@ client.on('messageCreate', async (message) => {
         deadline: new Date(deadline).getTime(),
         created: Date.now(), // Thêm thời gian tạo để theo dõi
         messageId: null, // Thêm field để lưu ID tin nhắn thông báo
+        isProcessed: false, // Thêm cờ để đánh dấu đã xử lý trừ điểm
       };
 
       try {
@@ -815,7 +816,7 @@ async function checkDeadlines() {
     
     // Lọc ra các thông báo đã quá deadline và chưa được xử lý
     const expiredAnnouncements = announcements.filter(announcement => {
-      if (!announcement.isExpired && announcement.deadline && now > announcement.deadline) {
+      if (!announcement.isProcessed && announcement.deadline && now > announcement.deadline) {
         // Kiểm tra xem có báo cáo nào đang chờ duyệt hoặc đã được duyệt cho thông báo này không
         const hasReport = reports.some(report => 
           report.announcementId === announcement.id && 
@@ -829,8 +830,8 @@ async function checkDeadlines() {
     
     // Xử lý từng thông báo quá hạn
     for (const announcement of expiredAnnouncements) {
-      // Đánh dấu thông báo đã được xử lý
-      announcement.isExpired = true;
+      // Đánh dấu nhiệm vụ đã được xử lý
+      announcement.isProcessed = true;
       
       for (const guild of client.guilds.cache.values()) {
         const announcementChannel = guild.channels.cache.get(ANNOUNCEMENT_CHANNEL_ID) || 
