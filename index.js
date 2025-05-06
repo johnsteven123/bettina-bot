@@ -62,6 +62,10 @@ client.on('ready', () => {
   
   // Kiểm tra cấu hình kênh khi bot khởi động
   checkChannels();
+  
+  // Chạy kiểm tra deadline ngay khi bot khởi động
+  console.log('Running initial deadline check...');
+  checkDeadlines();
 });
 
 // ===== CÁC HÀM TIỆN ÍCH =====
@@ -249,7 +253,10 @@ client.on('messageCreate', async (message) => {
 
       // Tạo thông báo với mentions
       let mentionText = '';
-      if (receiverIds.length > 0) {
+      // Nếu không có người nhận cụ thể, hiển thị "Người nhận: Bất kỳ"
+      if (receiverIds.length === 0) {
+        mentionText += `Người nhận: Bất kỳ`;
+      } else {
         mentionText += `Người nhận: ${receiverIds.map(id => `<@${id}>`).join(', ')}`;
       }
       if (roleIds.length > 0) {
@@ -756,7 +763,17 @@ client.on('messageCreate', async (message) => {
         try {
           const messageToEdit = await announcementChannel.messages.fetch(announcement.messageId);
           const formattedTaskNumber = `NV${announcementId.toString().padStart(3, '0')}`;
-          const newContent = `${formattedTaskNumber}\n${announcement.content}\nSố điểm: ${announcement.points}\n${announcement.receivers.length > 0 ? `Người nhận: ${announcement.receivers.map(id => `<@${id}>`).join(', ')}\n` : ''}${announcement.roleReceivers.length > 0 ? `Role nhận: ${announcement.roleReceivers.map(id => `<@&${id}>`).join(', ')}\n` : ''}Deadline: ${new Date(announcement.deadline).toLocaleString('vi-VN', { dateStyle: 'short', timeStyle: 'short' })}\n**Tình trạng**: Đã có người nhận - <@${announcement.acceptedBy}>`;
+          // Cập nhật hiển thị "Người nhận"
+          let receiverText = '';
+          if (announcement.receivers.length === 0) {
+            receiverText = 'Người nhận: Bất kỳ';
+          } else {
+            receiverText = `Người nhận: ${announcement.receivers.map(id => `<@${id}>`).join(', ')}`;
+          }
+          const roleText = announcement.roleReceivers.length > 0 
+            ? `Role nhận: ${announcement.roleReceivers.map(id => `<@&${id}>`).join(', ')}\n`
+            : '';
+          const newContent = `${formattedTaskNumber}\n${announcement.content}\nSố điểm: ${announcement.points}\n${receiverText}\n${roleText}Deadline: ${new Date(announcement.deadline).toLocaleString('vi-VN', { dateStyle: 'short', timeStyle: 'short' })}\n**Tình trạng**: Đã có người nhận - <@${announcement.acceptedBy}>`;
           await messageToEdit.edit(newContent);
         } catch (error) {
           console.error('Lỗi khi chỉnh sửa thông báo gốc:', error);
@@ -802,10 +819,14 @@ client.login(process.env.TOKEN)
 // ===== KIỂM TRA DEADLINE THEO ĐỊNH KỲ =====
 async function checkDeadlines() {
   try {
+    console.log('Checking deadlines at:', new Date().toLocaleString('vi-VN'));
+
     // Load dữ liệu mới nhất
     const announcementsData = fs.readFileSync('announcements.json', 'utf-8');
     const reportsData = fs.readFileSync('reports.json', 'utf-8');
     const pointsData = fs.readFileSync('points.json', 'utf-8');
+
+    console.log('Loaded announcements:', announcementsData);
 
     if (announcementsData) announcements.length = 0;
     if (announcementsData) announcements.push(...JSON.parse(announcementsData));
@@ -813,29 +834,38 @@ async function checkDeadlines() {
     if (pointsData) points = JSON.parse(pointsData);
     
     const now = Date.now();
+    console.log('Current time (timestamp):', now);
     
     // Lọc ra các thông báo đã quá deadline và chưa được xử lý
     const expiredAnnouncements = announcements.filter(announcement => {
+      console.log(`Checking announcement ${announcement.id}: Deadline ${announcement.deadline}, isProcessed: ${announcement.isProcessed}`);
       if (!announcement.isProcessed && announcement.deadline && now > announcement.deadline) {
         // Kiểm tra xem có báo cáo nào đang chờ duyệt hoặc đã được duyệt cho thông báo này không
         const hasReport = reports.some(report => 
           report.announcementId === announcement.id && 
           (report.status === 'pending' || report.status === 'approved')
         );
-        
+        console.log(`Announcement ${announcement.id} has report: ${hasReport}`);
         return !hasReport; // Chỉ xử lý các thông báo không có báo cáo đang chờ/đã duyệt
       }
       return false;
     });
     
+    console.log('Expired announcements:', expiredAnnouncements.map(a => a.id));
+    
     // Xử lý từng thông báo quá hạn
     for (const announcement of expiredAnnouncements) {
       // Đánh dấu nhiệm vụ đã được xử lý
       announcement.isProcessed = true;
+      console.log(`Processing expired announcement ${announcement.id}`);
       
       for (const guild of client.guilds.cache.values()) {
         const announcementChannel = guild.channels.cache.get(ANNOUNCEMENT_CHANNEL_ID) || 
                                    guild.channels.cache.find(ch => ch.name === 'thong-bao');
+        if (!announcementChannel) {
+          console.warn('Announcement channel not found!');
+          continue;
+        }
         
         // Trường hợp 1: Nhiệm vụ được giao cho user cụ thể
         if (announcement.receivers && announcement.receivers.length > 0) {
@@ -860,12 +890,10 @@ async function checkDeadlines() {
             points[userId] = Math.max(0, oldPoints - announcement.points);
             
             // Thông báo trừ điểm
-            if (announcementChannel) {
-              await announcementChannel.send(
-                `**CẢNH BÁO:** Nhiệm vụ NV${announcement.id.toString().padStart(3, '0')} đã quá hạn mà không có báo cáo!\n` +
-                `<@${userId}> đã bị trừ ${announcement.points} điểm! (Điểm còn lại: ${points[userId]})`
-              ).catch(err => console.error('Lỗi gửi thông báo trừ điểm cá nhân:', err));
-            }
+            await announcementChannel.send(
+              `**CẢNH BÁO:** Nhiệm vụ NV${announcement.id.toString().padStart(3, '0')} đã quá hạn mà không có báo cáo!\n` +
+              `<@${userId}> đã bị trừ ${announcement.points} điểm! (Điểm còn lại: ${points[userId]})`
+            ).catch(err => console.error('Lỗi gửi thông báo trừ điểm cá nhân:', err));
           }
         }
         
@@ -878,12 +906,10 @@ async function checkDeadlines() {
             points[userId] = Math.max(0, oldPoints - announcement.points);
             
             // Thông báo trừ điểm
-            if (announcementChannel) {
-              await announcementChannel.send(
-                `**CẢNH BÁO:** Nhiệm vụ NV${announcement.id.toString().padStart(3, '0')} đã quá hạn mà không có báo cáo!\n` +
-                `Người nhận <@${userId}> đã bị trừ ${announcement.points} điểm! (Điểm còn lại: ${points[userId]})`
-              ).catch(err => console.error('Lỗi gửi thông báo trừ điểm cho người nhận:', err));
-            }
+            await announcementChannel.send(
+              `**CẢNH BÁO:** Nhiệm vụ NV${announcement.id.toString().padStart(3, '0')} đã quá hạn mà không có báo cáo!\n` +
+              `Người nhận <@${userId}> đã bị trừ ${announcement.points} điểm! (Điểm còn lại: ${points[userId]})`
+            ).catch(err => console.error('Lỗi gửi thông báo trừ điểm cho người nhận:', err));
           } else {
             // Nếu chưa có người nhận, trừ điểm tất cả thành viên trong cả 2 role ┠Phó chủ tịch┤ và ┠Ban điều hành ┤
             const targetRoleNames = ['┠Phó chủ tịch┤', '┠Ban điều hành ┤'];
@@ -902,12 +928,10 @@ async function checkDeadlines() {
               points[userId] = Math.max(0, oldPoints - announcement.points);
               
               // Thông báo trừ điểm
-              if (announcementChannel) {
-                await announcementChannel.send(
-                  `**CẢNH BÁO:** Nhiệm vụ NV${announcement.id.toString().padStart(3, '0')} đã quá hạn mà không có người nhận hoặc báo cáo!\n` +
-                  `<@${userId}> (thuộc role ${targetRoleNames.join(', ')}) đã bị trừ ${announcement.points} điểm! (Điểm còn lại: ${points[userId]})`
-                ).catch(err => console.error('Lỗi gửi thông báo trừ điểm role:', err));
-              }
+              await announcementChannel.send(
+                `**CẢNH BÁO:** Nhiệm vụ NV${announcement.id.toString().padStart(3, '0')} đã quá hạn mà không có người nhận hoặc báo cáo!\n` +
+                `<@${userId}> (thuộc role ${targetRoleNames.join(', ')}) đã bị trừ ${announcement.points} điểm! (Điểm còn lại: ${points[userId]})`
+              ).catch(err => console.error('Lỗi gửi thông báo trừ điểm role:', err));
             }
           }
         }
@@ -919,6 +943,8 @@ async function checkDeadlines() {
       fs.writeFileSync('announcements.json', JSON.stringify(announcements));
       fs.writeFileSync('points.json', JSON.stringify(points));
       console.log(`Đã xử lý ${expiredAnnouncements.length} thông báo quá hạn.`);
+    } else {
+      console.log('Không có thông báo nào quá hạn cần xử lý.');
     }
   } catch (error) {
     console.error('Lỗi khi kiểm tra deadline:', error);
